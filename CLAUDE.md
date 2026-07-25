@@ -1,5 +1,11 @@
 # SmallCore
 
+> **Next task and operating notes: [ROADMAP.md](ROADMAP.md) — read its
+> "START HERE" section first.** M0–M6 are complete; the next build is the patch
+> observation model. This file is the record of what was measured and why;
+> ROADMAP is what to do next.
+
+
 A small sequence model that learns the structure of a space by walking around it and
 predicting what it will observe next.
 

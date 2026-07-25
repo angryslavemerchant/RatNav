@@ -1,5 +1,54 @@
 # Roadmap
 
+## START HERE — the next thing to build
+
+**Rung 5, the patch observation model.** Promoted above everything else,
+because M6 showed continuous movement and continuous observation are ONE change
+rather than two: continuous movement paired with the current piecewise-constant
+symbol field creates a task demanding sub-cell precision while supplying no
+sub-cell information, and observation similarity carries no spatial information
+at all, which specifically cripples the reverse read. M6 reached 53% of ceiling
+where discrete reached 98%, and this is the suspect.
+
+What it needs:
+
+1. Observations become an 8x8 patch centred on the continuous position, from a
+   background image, replacing `ContinuousEnvironment.observe`'s cell lookup.
+2. `to_value` (currently `Linear(n_observations -> obs_dim)` off a one-hot)
+   becomes a small patch encoder. Note it feeds BOTH the forward read's values
+   and the reverse read's keys.
+3. The target stops being classification. Use contrastive (pick the true patch
+   from distractors) over regression — MSE produces blurry averages.
+4. Baselines need patch-space equivalents: nearest-neighbour retrieval in place
+   of the node/edge tables.
+5. Start on a synthetic image with controlled statistics before real
+   photographs, so observation ambiguity stays a measured quantity rather than
+   an accident of the data.
+
+Then: adapter (Rung 6) → walls → policy → task-driven actions, per
+"The target". Rung 7's composition test slots in after the adapter,
+independently of the image work.
+
+**Rungs 0, 0b, 0c, 0d are CLOSED** — they were the M5 investigation, which is
+finished (see CLAUDE.md). Do not restart them. Rung 0c was never run and is not
+worth running: M5's question is answered.
+
+## Operating notes for a fresh session
+
+- Interpreter: `C:/Users/JmgLi/anaconda3/envs/ToastEnv/python.exe` (not on PATH).
+- **Rent cheap hosts with fast CPUs.** This workload is kernel-launch bound, so
+  GPU class is nearly irrelevant and single-thread CPU is everything: a $0.088
+  RTX A4000 + i7-13700 matched a $0.268 RTX 5090 and beat a $0.308 5090 on an
+  EPYC by 5.5x. Use `--thresholds vast/thresholds_cheap.json`. Full table and
+  gotchas in `vast/README.md`.
+- **Never `destroy --all-remote`** — this account runs other projects'
+  instances concurrently. `--all` is already scoped to this repo.
+- **Never reuse an offer id.** Re-running `search` is mandatory; a stale id
+  either creates a phantom billing contract or a wedged instance. Both happened.
+- `vastai logs` is silent on some images. SSH and read
+  `/workspace/onstart.log` before concluding an instance is dead.
+
+
 Work after M0–M5, ordered by information gained per unit of cost.
 
 **This plan is provisional and expected to change.** Every rung carries a
