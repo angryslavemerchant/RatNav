@@ -190,6 +190,7 @@ def main() -> int:
         "necessarily uniform, so this is the control that isolates sharing from "
         "the change in module widths.",
     )
+    parser.add_argument("--run-name", type=str, default=None, dest="run_name")
     args = parser.parse_args()
 
     if not ENV_PATH.exists():
@@ -343,6 +344,26 @@ def main() -> int:
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     tag = f"{args.encoder}{'_uniform' if args.uniform_dims else ''}"
+
+    # Save the encoder. The transition operators are the *structural* part of
+    # what this run learned -- how movements compose -- and that is independent
+    # of where a walk started, so they transfer to settings where M1's own
+    # objective would not train at all (see scripts/m3_train.py --init-from).
+    run_dir = ROOT / "runs" / (args.run_name or f"m1_{tag}")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "position": encoder.state_dict(),
+            "module_dims": config.module_dims,
+            "module_freqs": config.module_freqs,
+            "encoder": args.encoder,
+            "iterations": args.iters,
+            "probe_accuracy_50": short_accuracy,
+        },
+        run_dir / "position.pt",
+    )
+    print(f"\nwrote {run_dir / 'position.pt'}")
+
     figure_path = FIGURE_DIR / f"m1_probe_{tag}.png"
     fig.savefig(figure_path, dpi=140, bbox_inches="tight")
     plt.close(fig)

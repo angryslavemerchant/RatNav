@@ -49,6 +49,10 @@ class Config:
     # absolute location, so this term is genuinely unsatisfiable and is kept
     # small -- it is a pressure on the code, not an objective to reach.
     w_pred_pos: float = 0.1
+    # Squared error between the gated position and the pure path-integrated
+    # one (M3). Keeps the gate from rewriting position wholesale on every
+    # landmark: corrections should be nudges, not teleports.
+    w_drift: float = 0.05
 
     # --- training ---------------------------------------------------------- #
     batch_size: int = 16
@@ -57,6 +61,9 @@ class Config:
     lr_decay: float = 0.5
     lr_decay_every: int = 4000
     straight_bias: float = 2.0
+    # Truncated-backprop window. The memory cache spans the whole walk; the
+    # gradient does not.
+    tbptt_window: int = 20
 
     @property
     def position_dim(self) -> int:
