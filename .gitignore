@@ -1,0 +1,24 @@
+# Secrets — MUST be first. This repo is public.
+vast/secrets.env
+.vast/
+*.key
+*.pem
+
+# Run outputs
+runs/
+wandb/
+*.pt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
