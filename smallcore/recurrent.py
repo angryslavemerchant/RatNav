@@ -40,6 +40,7 @@ import torch
 from torch import nn
 
 from smallcore.config import Config
+from smallcore.continuous import ContinuousPositionEncoder
 from smallcore.drift import DriftGate, attend
 from smallcore.position import PositionEncoder
 from smallcore.readout import Readout
@@ -79,9 +80,17 @@ class SmallCoreRecurrent(nn.Module):
     def __init__(self, n_actions: int, config: Config, seed: int = 0) -> None:
         super().__init__()
         self.config = config
-        self.position = PositionEncoder(
-            n_actions, config.module_dims, config.module_freqs, seed=seed
-        )
+        # Velocity-conditioned vs action-indexed path integration. Both expose
+        # the same step(state, movement) interface, so nothing downstream --
+        # memory, gate, readout -- needs to know which is in use.
+        if config.continuous:
+            self.position = ContinuousPositionEncoder(
+                config.module_dims, config.module_freqs, seed=seed
+            )
+        else:
+            self.position = PositionEncoder(
+                n_actions, config.module_dims, config.module_freqs, seed=seed
+            )
         # W_e and W_x, shared by both reads. The forward read uses W_e for
         # queries/keys and W_x for values; the reverse read uses W_x for
         # queries/keys and the raw codes as values.

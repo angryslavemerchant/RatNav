@@ -42,6 +42,13 @@ class Config:
     # place-like. Thresholding is what suppresses a periodic code's side lobes,
     # which is exactly how grid cells become place cells biologically.
     nonlinear_key: bool = False
+
+    # Continuous movement: the position stream takes a velocity vector instead
+    # of an action index, and two learned generators replace the per-action
+    # matrices (smallcore/continuous.py).
+    continuous: bool = False
+    # Step length for continuous walks (cells per step).
+    speed: float = 1.0
     # Post-attention residual block, per the brief's one-layer/one-head start.
     model_dim: int = 64
     hidden_dim: int = 64

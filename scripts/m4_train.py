@@ -56,6 +56,7 @@ from smallcore.graphs import (
     Environment,
     assign_observations,
     generate_batch_fast,
+    hex_grid,
     square_grid,
 )
 from smallcore.recurrent import SmallCoreRecurrent
@@ -126,6 +127,13 @@ def main() -> int:
         "are close to free.",
     )
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument(
+        "--topology", choices=("square", "hex"), default="square",
+        help="hex has SIX actions at 60 degrees apart, so its symmetry "
+        "privileges hexagonal codes where the square grid's four cardinal "
+        "actions privilege 0/90. Single-variable test of whether the learned "
+        "code adopts the symmetry of the world.",
+    )
     parser.add_argument("--key-dim", type=int, default=None, dest="key_dim")
     parser.add_argument(
         "--nonlinear-key", action="store_true", dest="nonlinear_key",
@@ -201,7 +209,10 @@ def main() -> int:
 
     # One topology, many appearances. Built directly rather than loaded so the
     # observation assignment is clearly ours to redraw.
-    topology = square_grid(args.grid, args.grid)
+    topology = (
+        square_grid(args.grid, args.grid) if args.topology == "square"
+        else hex_grid(args.grid, args.grid)
+    )
     pool = [
         assign_observations(topology, config.n_observations, rng)
         for _ in range(args.n_envs)
