@@ -34,6 +34,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -113,6 +114,14 @@ def main() -> int:
         "--freeze-position", action="store_true", dest="freeze_position",
         help="hold the transferred operators fixed",
     )
+    parser.add_argument(
+        "--batch-size", type=int, default=None, dest="batch_size",
+        help="override Config.batch_size. Measured 2026-07-25: the step loop is "
+        "kernel-launch bound, so batch 128 costs the same wall-clock per "
+        "iteration as batch 16 while seeing 8x the walks. Larger batches here "
+        "are close to free.",
+    )
+    parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--run-name", type=str, default=None, dest="run_name")
     args = parser.parse_args()
@@ -121,6 +130,10 @@ def main() -> int:
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     config = Config()
+    if args.batch_size:
+        config = replace(config, batch_size=args.batch_size)
+    if args.lr:
+        config = replace(config, lr=args.lr)
 
     # One topology, many appearances. Built directly rather than loaded so the
     # observation assignment is clearly ours to redraw.
