@@ -166,6 +166,51 @@ Outcomes:
   grid codes**, because what makes a code decodable is not what makes it a good
   address. That would make M5's outcome a finding rather than a failure.
 
+## Rung 0d — nonlinear grid→place bottleneck (2026-07-25, user proposal)
+
+**The leading hypothesis for M5, and the first that is not a knob.**
+
+Why no grid codes form: the memory addresses by dot product, and a periodic
+code gives periodic similarity — a main peak plus side lobes wherever modules
+re-align, so a query partially retrieves memories a full period away. Unimodal
+similarity is strictly better for retrieval, so the loss selects place codes.
+
+Why the existing projection does not rescue it: `to_key` is
+`Linear(120 → 64, bias=False)`. Key similarity is `e(x)ᵀWᵀW e(y)` — a reweighted
+version of the same quadratic form. **A linear map cannot turn periodic
+similarity into unimodal similarity**; it can rescale or discard modules but the
+side lobes come from the periodic components themselves. So the demand for
+clean unimodal similarity propagates back onto `e_t`, and the recurrent state
+is forced to do the place-cell job because nothing downstream can do it for it.
+
+The biological transform is nonlinear and that is the point: grid → place is
+sum-several-periodic-inputs-and-threshold. Where all modules constructively
+align the sum clears threshold; at side lobes, where only some align, it does
+not. Thresholding is what kills the lobes. Our architecture skips this step
+entirely.
+
+**The change:** `Linear → ReLU → key`, with the ReLU load-bearing. Probably
+*wider* than the position code, not narrower — grid codes are compact, place
+codes are sparse and need more units, so 120 → 64 is the wrong direction.
+
+**The catch, and why this pairs with Rung 0b.** A nonlinear head makes a
+grid-like `e_t` *permissible*, not *preferred*. If the head can build good keys
+from anything, the state has no reason to become periodic. The incentive has to
+come from **capacity pressure on `e_t`** — the effect measured in Rung 0b,
+peaking near 15 locations per unit, since grid codes pack position into fewer
+dimensions than place codes.
+
+Neither alone works, which explains both negative results: the capacity sweep
+failed because periodicity was still punished at the key, and a nonlinear head
+alone would fail because nothing rewards it. **Together is the first
+configuration where a grid code is both allowed and advantageous.**
+
+**Prediction:** a division of labour — `e_t` becomes grid-like while the head's
+output becomes place-like. M5 must therefore measure BOTH streams and expect
+different answers from each. If both stay place-like, the nonlinearity was not
+the obstacle. If `e_t` goes periodic and accuracy holds, that is the result the
+whole M5 exercise has been chasing.
+
 ## Rung 1 — conjunctive reverse read
 
 Concatenate the position estimate onto the reverse read's query and keys, with
