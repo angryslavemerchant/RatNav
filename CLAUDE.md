@@ -285,7 +285,49 @@ nonlinearities — and the model reaches 98% of the information-theoretic ceilin
 with the codes it does build, so nothing pressures it toward a more elegant
 solution.
 
-**MAJOR CORRECTION (2026-07-25): periodic codes DID form. They are bands.**
+**M5 RESULT (2026-07-25): periodic codes form in EVERY configuration, and the
+fraction rises with capacity pressure to 100%. They are bands, not hexagons.**
+
+Measured by counting 2D Fourier peaks (2 = band, 4 = square, 6 = hexagonal),
+which is the symmetry itself. Trained on next-observation prediction ONLY —
+there is no positional supervision anywhere in this model:
+
+| arena / dims | loc per unit | band | square | hex | none | periodic |
+|---|---|---|---|---|---|---|
+| 11×11 / 120 | 1.0 | 70 | 2 | 0 | 48 | 60% |
+| 21×21 / 120 | 3.7 | 66 | 1 | 1 | 52 | 57% |
+| 21×21 / 30 | 14.7 | 24 | 2 | 2 | 2 | 93% |
+| 21×21 / 20 | 22.1 | 10 | 4 | 1 | 5 | 75% |
+| **31×31 / 20** | **48.0** | **17** | **3** | **0** | **0** | **100%** |
+
+**Capacity pressure drives periodicity**, as hypothesised: 57% → 93% → 100% as
+locations-per-unit rises. At 48 per unit every position unit is periodic. When
+a place code becomes unaffordable the model builds a periodic one instead.
+(Trust the 21×21 and 31×31 rows most; an 11-cell map gives poor frequency
+resolution.)
+
+**Module structure is real.** In the 21×21 / 20 run, every unit within a module
+shares wavelength *and* orientation, and modules differ in both — module 2 all
+at 7.5 cells / 45°, module 3 all at 8.2 cells / 140°. That is what a grid-cell
+module *is*: shared spacing and orientation, differing phase. The two
+orientations are near-perpendicular, and where they combine (u1, u4) the result
+is a 4-peak square lattice.
+
+**Hexagons are absent, and that is correct.** A hexagonal grid needs three bands
+interfering at 60°, and nothing in a square lattice with four cardinal actions
+privileges 60° — its natural angles are 0° and 90°. The obvious test is
+`hex_grid` from M0, whose six actions at 60° *do* privilege hexagons.
+
+**Everything below that reports "no periodic structure" was a metric artefact.**
+`periodicity_score` asks only "is this hexagonal?", so a 1-D band answers "no"
+indistinguishably from noise answering "no" — both land at ≈0. Units with
+obvious diagonal stripes scored −0.01 to −0.02 and were logged as unstructured
+across six "refuted" hypotheses. Found by *looking at the rate-map figures* the
+harness had been drawing all along. **Never report absence from a scalar that
+only asks about one shape; use `analysis.spectral_structure` and open the
+maps.**
+
+**Superseded claim, kept as a lesson:**
 
 Every "no periodic structure" claim below was an artefact of the metric. The
 gridness score asks one question — *is this hexagonal?* — and a 1-D striped
