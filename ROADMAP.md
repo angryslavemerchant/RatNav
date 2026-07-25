@@ -259,9 +259,11 @@ Earned the hard way; they apply to every rung above.
    kernel-launch bound and batch 16 → 128 is free — both correct, both measured
    on one machine. I then concluded renting would not help, which that
    measurement could not support, and repeated it twice with confidence. A
-   rented RTX 5090 with a fast consumer CPU ran the identical job **9.7x
-   faster** (0.25 vs 2.46 s/iter). Launch issue rate is CPU-side, so the host
-   CPU *is* the bottleneck and choosing it well is the whole game.
+   rented host with a fast consumer CPU ran the identical job **~9x faster**
+   (0.25 vs 2.46 s/iter). Launch issue rate is CPU-side, so the host CPU *is*
+   the bottleneck. Confirmed twice over: a $0.088 RTX A4000 with an i7-13700
+   matched a $0.268 RTX 5090 to within 7%, while a $0.308 RTX 5090 on an EPYC
+   was **5.5x slower than both**. Shop for the CPU; buy the cheapest card.
 5. **Validate a metric on synthetic data before trusting it on real.** The
    periodicity score was checked against a hexagonal lattice (+0.90), noise
    (−0.10) and a single blob (−0.44) first, which is what makes the negative

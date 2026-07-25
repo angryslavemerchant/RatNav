@@ -14,15 +14,27 @@ operational history worth reading before renting anything.
   measure a path this project never takes and are skipped
   (`--skip download,bank,cpu`). `thresholds_smallcore.json` keeps only the
   broken-hardware floors.
-- **Rent for SPEED, and pick the CPU. Measured 2026-07-25: 9.7x faster.**
-  The recurrence is kernel-launch bound, and launch issue rate is *CPU-side*
-  work — so the host CPU is the bottleneck, not the GPU. On the identical
-  21x21 / 30-dim job: local 2.46 s/iter, an RTX 5090 host with a Core Ultra 9
-  285K 0.25 s/iter. An earlier conclusion that "a faster card does not shorten
-  a single run" was drawn from batch-scaling on ONE machine and never tested
-  across machines; it was wrong. **Prefer high single-thread consumer CPUs
-  (Core Ultra, Ryzen) over many-core EPYC/Xeon** — the opposite of what the
-  previous project wanted, because that one was GPU-bound and this one is not.
+- **SHOP FOR THE CPU, NOT THE GPU.** The recurrence is kernel-launch bound and
+  launch issue rate is *CPU-side* work, so the host CPU is the bottleneck. On
+  the identical 21x21 / 20-dim job, measured 2026-07-25:
+
+  | host | $/hr | s/iter | cost per 3000-iter run |
+  |---|---|---|---|
+  | **RTX A4000 + i7-13700** | **0.088** | **0.268** | **$0.02** |
+  | RTX 5090 + Core Ultra 9 285K | 0.268 | 0.25 | $0.06 |
+  | RTX 5090 + EPYC 7B12 | 0.308 | 1.46 | $0.38 |
+  | local workstation | — | 2.46 | — |
+
+  A $0.088 A4000 with a good desktop CPU is within 7% of a $0.268 RTX 5090 and
+  **19x better value than a 5090 on an EPYC**. GPU class is nearly irrelevant;
+  single-thread CPU is the entire story. **Buy the cheapest card attached to a
+  Ryzen 5000+/12th-gen-Core-or-newer chip**, and use
+  `--thresholds vast/thresholds_cheap.json` so the boot gate does not reject
+  small GPUs for being small (the default floor of 50 bf16 TFLOPS was
+  calibrated on a 5090 at 236 and rejects a perfectly usable 3060).
+
+  Note this inverts the previous project's rule, which preferred many-core
+  server CPUs because that workload was GPU-bound. This one is not.
 - **`destroy --all` is scoped to this repo.** The account runs instances for
   other projects concurrently; `--all` destroys only what
   `.vast/instances.json` records. `--all-remote` is the unscoped version and
