@@ -4,8 +4,19 @@ vast/secrets.env
 *.key
 *.pem
 
-# Run outputs
-runs/
+# Run outputs. Checkpoints are binaries and stay out, but the ANALYSIS is the
+# actual scientific record and must be version-controlled: m5.json holds the
+# per-unit periodicity, field and spectral-structure numbers, metrics.json the
+# accuracy against ceiling and baselines. Those were local-only until
+# 2026-07-25, meaning every measurement in this project lived on one disk.
+#
+# git will not descend into an ignored directory, so a bare `!runs/**/*.json`
+# would never match. The four rules below are the working idiom: ignore the
+# contents, re-admit the directories, ignore their contents, re-admit the JSON.
+runs/*
+!runs/*/
+runs/*/*
+!runs/*/*.json
 wandb/
 *.pt
 

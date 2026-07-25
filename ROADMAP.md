@@ -338,6 +338,48 @@ structural here, not a hope.
 **Prediction:** a few dozen adapter parameters recover most of the measured
 19-point gap (frozen 76.5% vs scratch 95.8%). Independent of Rungs 1–5.
 
+## The target (user, 2026-07-25) — an agent that walks an image
+
+The rungs below are steps toward this, and it is worth stating plainly because
+it changes which of them matter.
+
+**An agent that classifies an image by walking it**: moving continuously,
+seeing only a local patch, building a position-addressed memory of what it has
+seen where, choosing where to look next, with a **frozen navigator reused
+across visual domains**. The claim would be that the navigation primitive
+transfers untouched to a new domain and only the appearance-specific parts
+retrain — active perception plus the transfer story, which is stronger than
+either half alone.
+
+**Why continuous is a prerequisite, not a nicety.** Discrete operators are
+*lattice-bound*: four matrices tied to four moves on one grid, and an adapter
+can rescale or rotate them but they still only express that lattice. Continuous
+operators are *geometry-bound*: two generators plus a velocity express any
+translation, so the adapter tunes a **metric** — scale, aspect, shear,
+orientation, three or four numbers — covering essentially all 2D geometries.
+A reusable primitive has to be continuous; the discrete one never could be.
+
+**Walls, without breaking the algebra.** The rule that must survive is "a
+velocity means exactly this displacement". So let the world resolve collisions
+however it likes and feed the position stream the **realized** velocity, not
+the intended one. The agent integrates what actually happened, walls become
+transparent to path integration, and the policy's problem (avoid walls) stays
+separate from the navigator's problem (know where you are).
+
+**The policy step is where difficulty concentrates.** A policy makes the
+agent's own behaviour determine its data — non-stationary, with collapse modes
+(stops moving, circles one region). Action selection through a
+non-differentiable world normally means REINFORCE and its variance.
+
+*But this architecture already contains a predictive world model.* Choose
+actions by querying its own predictions — move where the predicted observation
+is most uncertain, or where uncertainty about the task label falls fastest.
+Model-based active perception, no RL stack, reusing machinery already built.
+
+**Order:** continuous (Rung 4, running) → image patches (Rung 5) → adapter
+(Rung 6) → walls with realized-velocity feedback → policy → task-driven actions.
+Rung 7's composition test can slot in after the adapter, independently.
+
 ## Rung 7 — N=2 composition
 
 Two frozen navigators, a product topology (grid × ring), a trained attention

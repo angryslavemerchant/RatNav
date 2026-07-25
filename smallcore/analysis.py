@@ -266,3 +266,50 @@ def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
 
     return {"n_peaks": int(n), "wavelength": float(wavelength),
             "orientation": orientation, "peak_power": float(peak)}
+
+
+def rate_maps_coords(
+    activations: np.ndarray,
+    locations: np.ndarray,
+    coords: np.ndarray,
+    bin_size: float = 0.6,
+    smooth: float = 1.2,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Rate maps binned in REAL space rather than by location index.
+
+    :func:`rate_maps` reshapes the location index into a rectangle, which is
+    correct only when the index grid *is* the geometry. It is not for a hex
+    lattice: hex coordinates are offset (``col + 0.5 * (row % 2)``,
+    ``row * sqrt(3) / 2``), so reshaping by index **shears the lattice**, and a
+    hexagonal pattern drawn in a sheared frame cannot show six-fold symmetry in
+    its autocorrelogram no matter what the model learned.
+
+    Binning by ``topology.coords`` renders the map in the space the agent
+    actually moves through. Returns ``(maps, extent)`` with maps shaped
+    ``(n_units, ny, nx)``.
+    """
+    xy = coords[locations]
+    x0, y0 = coords[:, 0].min(), coords[:, 1].min()
+    x1, y1 = coords[:, 0].max(), coords[:, 1].max()
+    nx = max(4, int(np.ceil((x1 - x0) / bin_size)) + 1)
+    ny = max(4, int(np.ceil((y1 - y0) / bin_size)) + 1)
+
+    ix = np.clip(((xy[:, 0] - x0) / bin_size).astype(int), 0, nx - 1)
+    iy = np.clip(((xy[:, 1] - y0) / bin_size).astype(int), 0, ny - 1)
+    flat = iy * nx + ix
+
+    n_units = activations.shape[1]
+    sums = np.zeros((n_units, ny * nx))
+    counts = np.zeros(ny * nx)
+    np.add.at(counts, flat, 1.0)
+    for unit in range(n_units):
+        np.add.at(sums[unit], flat, activations[:, unit])
+
+    sums = sums.reshape(n_units, ny, nx)
+    counts = counts.reshape(ny, nx)
+    if smooth > 0:
+        counts = ndimage.gaussian_filter(counts, smooth, mode="nearest")
+        sums = np.stack(
+            [ndimage.gaussian_filter(s, smooth, mode="nearest") for s in sums]
+        )
+    return sums / np.maximum(counts, 1e-9), (x0, x1, y0, y1)

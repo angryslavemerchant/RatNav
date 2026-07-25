@@ -1,0 +1,50 @@
+{
+  "modules": [
+    {
+      "module": 0,
+      "freq": 0.667,
+      "mean": -0.32865836886183614,
+      "max": 0.25999562136928855,
+      "n_passing": 0,
+      "n_units": 24
+    },
+    {
+      "module": 1,
+      "freq": 0.476,
+      "mean": -0.10088204853937317,
+      "max": -0.06355237243968327,
+      "n_passing": 0,
+      "n_units": 24
+    },
+    {
+      "module": 2,
+      "freq": 0.34,
+      "mean": -0.5377273573775665,
+      "max": -0.47160645935566803,
+      "n_passing": 0,
+      "n_units": 24
+    },
+    {
+      "module": 3,
+      "freq": 0.243,
+      "mean": -0.5687608653410329,
+      "max": -0.3167387159186913,
+      "n_passing": 0,
+      "n_units": 24
+    },
+    {
+      "module": 4,
+      "freq": 0.174,
+      "mean": -0.41538712752593493,
+      "max": 0.3704718417929299,
+      "n_passing": 1,
+      "n_units": 24
+    }
+  ],
+  "mean_periodicity": -0.3902831535291488,
+  "max_periodicity": 0.3704718417929299,
+  "units_passing": 1,
+  "n_units": 120,
+  "memory_field_mean": 0.7961451975511511,
+  "memory_field_max": 1.0
+}
