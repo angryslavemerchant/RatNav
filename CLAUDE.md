@@ -208,7 +208,7 @@ You cannot read success off a loss curve. Build these first:
 | **M0** | Environments and walks | ✅ 96 walks validated; figures rendered |
 | **M1** | Position stream alone; linear probe decoding true location from `e_t` | ✅ 100% decoding on held-out 50-step walks (chance 0.8%), 87.9% at step 200 |
 | **M2** | Forward read + readout, single environment | ✅ 88.9% vs 41.8% edge / 18.9% node on 100-step walks; 81.2% at 300 steps |
-| **M3** | Reverse read + drift gate | 300-step accuracy no longer degrades vs. 50-step |
+| **M3** | Reverse read + drift gate | ✅ 97.4% at 300 steps vs 95.8% at 50 — degradation inverted (−1.6%); ablation without the gate degrades +4.8% |
 | **M4** | Multi-environment training, fresh observations per env | Non-trivial zero-shot accuracy |
 | **M5** | Analysis harness | Position units pass the periodicity threshold; memory units show localised fields |
 
@@ -233,6 +233,38 @@ it learned in training, and predicts from there. That is why accuracy exceeds
 the revisit rate, which bounds pure lookup only and is *not* a ceiling.
 
 The 100-step to 300-step drop (88.9% → 81.2%) is the drift M3 exists to remove.
+
+**Where M3 landed (2026-07-25).** The reverse read and gate work, and a proper
+ablation separates them from the training change that arrived alongside:
+
+| 300-step accuracy | reverse read | backprop |
+|---|---|---|
+| M2, 81.2% | no | full-walk |
+| M3 ablation, 82.8% | no | truncated |
+| M3, **97.4%** | **yes** | truncated |
+
+Truncated backprop was worth ~1.6 points; the drift gate ~14.6. Without the
+gate, accuracy still *degrades* with length (+4.8%); with it, degradation
+inverts (−1.6%) because accumulated memory outweighs accumulated error.
+
+The mean gate settles near **0.12** — corrections are small continuous nudges,
+never teleports, which is the right response to a reverse read whose answer is
+a blend of the ~2.7 locations sharing the queried symbol.
+
+**Ablations must disable the mechanism inside the loop.** The first `--no-gate`
+only replaced state *between* truncation windows, leaving the gate running for
+19 of every 20 steps; it scored within a point of the full model and looked
+like evidence the gate was useless. Verify an ablation by checking the
+mechanism's own statistic goes to zero.
+
+**Transfer from M1 hurts (2026-07-25).** Seeding M3's operators from a trained
+M1 and continuing: 82.9%/92.3% (50/300-step). Freezing them: 76.5%/87.4%.
+From scratch: 95.8%/97.4%. Monotone, and the wrong way round. M1's operators
+path-integrate beautifully (99.6% linear decoding at step 200) but M3 needs a
+code whose *dot products* behave well, since that is what attention scores are
+— a different objective, and optimising hard for the first lands in a worse
+basin for the second. The frozen arm also ran the highest gate of any run
+(0.145 vs ~0.10): unable to fix its position stream, it leaned on landmarks.
 
 ## 8. Hyperparameters (starting point)
 
