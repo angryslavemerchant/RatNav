@@ -206,13 +206,33 @@ You cannot read success off a loss curve. Build these first:
 | # | Milestone | Done when |
 |---|---|---|
 | **M0** | Environments and walks | ✅ 96 walks validated; figures rendered |
-| **M1** | Position stream alone; linear probe decoding true location from `e_t` | Decoding ≫ chance on short walks — path integration works |
-| **M2** | Forward read + readout, single environment | Accuracy well above node/edge baselines |
+| **M1** | Position stream alone; linear probe decoding true location from `e_t` | ✅ 100% decoding on held-out 50-step walks (chance 0.8%), 87.9% at step 200 |
+| **M2** | Forward read + readout, single environment | ✅ 88.9% vs 41.8% edge / 18.9% node on 100-step walks; 81.2% at 300 steps |
 | **M3** | Reverse read + drift gate | 300-step accuracy no longer degrades vs. 50-step |
 | **M4** | Multi-environment training, fresh observations per env | Non-trivial zero-shot accuracy |
 | **M5** | Analysis harness | Position units pass the periodicity threshold; memory units show localised fields |
 
 M3 is where a sloppy implementation reveals itself. M5 is the actual result.
+
+**Where M2 landed (2026-07-25).** Walks start at a *random* location from M2
+onward. Under M1's fixed start the readout can memorise the map — position
+alone reached 99% — which would have made the memory stream decorative. With an
+unknown origin the position code carries only displacement, position-only
+accuracy sits at 7% against a 6% floor, and the forward read has to do the
+work. Nothing is pretrained; the position stream is learned from scratch with
+no direct objective, purely because good codes make retrieval land well.
+
+`scripts/m2_analyse.py` shows *how* it works, and it is not what the milestone
+assumed. Retrieval is not exact-cell lookup — the top attended memory is the
+same location only 0.2% of the time. It is **neighbourhood** retrieval:
+attention lands 1.20 cells away on average against 3.59 at chance, and the
+same-location ratio (2.5x on 300-step walks) exceeds the same-symbol ratio
+(1.6x), confirming keys carry addresses rather than appearance. The model
+retrieves a local patch of remembered symbols, uses it to localise on the map
+it learned in training, and predicts from there. That is why accuracy exceeds
+the revisit rate, which bounds pure lookup only and is *not* a ceiling.
+
+The 100-step to 300-step drop (88.9% → 81.2%) is the drift M3 exists to remove.
 
 ## 8. Hyperparameters (starting point)
 
