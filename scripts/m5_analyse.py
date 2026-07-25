@@ -111,6 +111,7 @@ def main() -> int:
     parser.add_argument("--length", type=int, default=300)
     parser.add_argument("--window", type=int, default=20)
     parser.add_argument("--smooth", type=float, default=1.0)
+    parser.add_argument("--grid", type=int, default=11)
     args = parser.parse_args()
 
     checkpoint_path = ROOT / args.run / "best.pt"
@@ -122,7 +123,7 @@ def main() -> int:
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config = checkpoint.get("config", Config())
 
-    topology = square_grid(11, 11)
+    topology = square_grid(args.grid, args.grid)
     env = assign_observations(
         topology, config.n_observations, np.random.default_rng(4242)
     )
@@ -141,8 +142,12 @@ def main() -> int:
         f"covering {coverage:.0%} of the grid\n"
     )
 
-    position_maps = rate_maps(codes, locations, 11, 11, smooth=args.smooth)
-    memory_maps = rate_maps(memories, locations, 11, 11, smooth=args.smooth)
+    position_maps = rate_maps(
+        codes, locations, args.grid, args.grid, smooth=args.smooth
+    )
+    memory_maps = rate_maps(
+        memories, locations, args.grid, args.grid, smooth=args.smooth
+    )
 
     periodicity = np.array([periodicity_score(m) for m in position_maps])
     fields = np.array([field_score(m) for m in memory_maps])
@@ -172,11 +177,11 @@ def main() -> int:
         )
         cycle = 2.0 / freq
         if cycle < 3:
-            note = "period {:.1f} cells - at Nyquist, unresolvable".format(cycle)
-        elif cycle > 11:
-            note = "period {:.0f} cells - EXCEEDS the 11-cell arena".format(cycle)
+            note = f"cycle {cycle:.1f} cells - at Nyquist, unresolvable"
+        elif cycle > args.grid:
+            note = f"cycle {cycle:.0f} cells - EXCEEDS the {args.grid}-cell arena"
         else:
-            note = "period {:.1f} cells - resolvable".format(cycle)
+            note = f"cycle {cycle:.1f} cells - {args.grid / cycle:.1f} repeats fit"
         print(
             f"  module {index} (freq {freq:>5}): mean {block.mean():+.3f}  "
             f"best {block.max():+.3f}  "

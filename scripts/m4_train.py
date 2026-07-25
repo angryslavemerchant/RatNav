@@ -126,6 +126,24 @@ def main() -> int:
         "are close to free.",
     )
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument(
+        "--grid", type=int, default=11,
+        help="arena width/height. Periodicity is only detectable when several "
+        "cycles fit inside the arena, so 11 is cramped for M5 even with well "
+        "chosen frequencies; 21 gives roughly twice the repeats.",
+    )
+    parser.add_argument(
+        "--module-freqs", type=str, default=None, dest="module_freqs",
+        help="comma-separated per-module frequencies. A module's full cycle is "
+        "2/freq CELLS, so a frequency whose cycle exceeds the arena cannot "
+        "express spatial periodicity at all -- which is what the shipped "
+        "defaults (cycles 2, 6.7, 22, 67, 200) do on an 11-cell grid.",
+    )
+    parser.add_argument(
+        "--n-observations", type=int, default=None, dest="n_observations",
+        help="observation vocabulary. Defaults to keeping ~2.7 locations per "
+        "symbol, matching the ambiguity the 11x11 world was designed with.",
+    )
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--run-name", type=str, default=None, dest="run_name")
     args = parser.parse_args()
@@ -138,10 +156,20 @@ def main() -> int:
         config = replace(config, batch_size=args.batch_size)
     if args.lr:
         config = replace(config, lr=args.lr)
+    if args.module_freqs:
+        freqs = tuple(float(f) for f in args.module_freqs.split(","))
+        if len(freqs) != len(config.module_dims):
+            raise SystemExit(
+                f"{len(freqs)} frequencies for {len(config.module_dims)} modules"
+            )
+        config = replace(config, module_freqs=freqs)
+    n_locations = args.grid * args.grid
+    n_obs = args.n_observations or max(2, round(n_locations / 2.7))
+    config = replace(config, n_observations=n_obs)
 
     # One topology, many appearances. Built directly rather than loaded so the
     # observation assignment is clearly ours to redraw.
-    topology = square_grid(11, 11)
+    topology = square_grid(args.grid, args.grid)
     pool = [
         assign_observations(topology, config.n_observations, rng)
         for _ in range(args.n_envs)
@@ -187,6 +215,13 @@ def main() -> int:
             config={**vars(args), "parameters": n_params},
         )
 
+    print(
+        "modules: "
+        + ", ".join(
+            f"cycle {2.0 / f:.1f} cells" for f in config.module_freqs
+        )
+        + f"  (arena {args.grid} cells wide)"
+    )
     print(
         f"M4 on {topology.name}: "
         + ("a fresh environment every batch" if not pool
