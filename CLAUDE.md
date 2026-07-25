@@ -262,25 +262,36 @@ positions and so favouring place-like solutions. The gate-ablated model scores
 *worse* (mean −0.561 vs −0.390), so the gate is not suppressing periodicity and
 may mildly help.
 
-Remaining suspects, in order:
+**All four mechanistic hypotheses are now refuted.**
 
-1. **L2 on the position code** (gotcha 4). A multi-scale periodic code resolves
-   position in far fewer units than a place code, so pressure toward an
-   efficient code is meant to be much of what drives periodicity. `--l2-code`
-   exists to sweep it; 0.01 is the shipped value.
-2. **Arena size.** Even corrected, only 1.3–2.6 cycles fit in 11 cells.
-   Gridness was designed for arenas holding several periods. The 21x21 run
-   tests this.
-3. **Nothing requires periodicity.** Place codes solve this task, and the model
-   is under no pressure to find a more elegant solution. If so, the honest
-   result is that this architecture on this task produces place codes — which
-   is a real finding, and consistent with published scepticism that grid codes
-   emerge robustly from trained path integrators rather than from carefully
-   chosen readouts, regularisers and nonlinearities.
-4. **Signed activations.** Units are tanh then LayerNorm, so a "rate map" here
-   is of a signed quantity, where grid cells are nonnegative firing rates. The
-   LayerNorm also couples units at each step, which could smear per-unit
-   spatial structure.
+| hypothesis | test | units >= 0.30 | mean | verdict |
+|---|---|---|---|---|
+| baseline | original config | 1/120 | −0.405 | — |
+| frequencies too coarse | cycles 3.0–11.5 cells | 1/120 | −0.390 | refuted |
+| drift gate anchors codes | gate ablated | 1/120 | −0.561 | refuted (worse) |
+| arena too small | 21×21, 1.8–5.0 cycles/module | **0/120** | −0.369 | refuted |
+| under-regularised code | L2 0.01 → 0.1 | 1/120 | −0.405 | refuted |
+
+Each was worth testing and each was wrong. Notably the fixes were not neutral —
+corrected frequencies took zero-shot accuracy from 95% to **98% of ceiling**,
+and 10x L2 more than doubled the drift gate (0.12 → 0.26) at no accuracy cost,
+which is the only thing found so far that moves the gate at all.
+
+**Conclusion: this architecture, on this task, produces place codes rather than
+grid codes.** That is a real result, not a failure. It is consistent with
+published scepticism that grid codes emerge robustly from trained path
+integrators rather than from carefully chosen readouts, regularisers and
+nonlinearities — and the model reaches 98% of the information-theoretic ceiling
+with the codes it does build, so nothing pressures it toward a more elegant
+solution.
+
+One untested structural suspect remains, and it is a change to the
+architecture rather than a knob: units are **tanh then LayerNorm**, so a rate
+map here is of a *signed* quantity, where grid cells are nonnegative firing
+rates. The LayerNorm also couples all 120 units at every step, which could
+smear per-unit spatial structure. Testing it means a nonnegative activation and
+per-module rather than global normalisation — worth doing only if grid codes
+are wanted for their own sake, since place codes already saturate the task.
 
 **Where M2 landed (2026-07-25).** Walks start at a *random* location from M2
 onward. Under M1's fixed start the readout can memorise the map — position
