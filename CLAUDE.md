@@ -285,6 +285,44 @@ nonlinearities — and the model reaches 98% of the information-theoretic ceilin
 with the codes it does build, so nothing pressures it toward a more elegant
 solution.
 
+**MAJOR CORRECTION (2026-07-25): periodic codes DID form. They are bands.**
+
+Every "no periodic structure" claim below was an artefact of the metric. The
+gridness score asks one question — *is this hexagonal?* — and a 1-D striped
+pattern answers "no" indistinguishably from noise answering "no". Both land at
+≈0. Position units with obvious diagonal bands scored −0.01 to −0.02 and were
+recorded as unstructured. Found by *looking at the rate-map figures*, after
+hours of trusting the scalar over the images it was drawing.
+
+Counting 2D Fourier peaks says which symmetry is present (2 = band, 4 = square,
+6 = hexagonal). On the 21×21 / 20-dim run:
+
+    band (2) 10   square (4) 3   hex (6) 0   none/other 7
+
+**13 of 20 units are genuinely periodic**, and the scales match the design:
+
+| module | designed cycle | measured wavelength | peak counts |
+|---|---|---|---|
+| 0 | 3.0 | 14.2 | 2,4,2,2 |
+| 1 | 4.2 | 8.2 | 4,2,6,2 |
+| 2 | 5.9 | 7.5 | 2,2,2,2 |
+| **3** | **8.2** | **8.2** | 2,2,2,2 |
+| 4 | 11.5 | 13.0 | 4,2,2,2 |
+
+Module 3 lands exactly on its designed cycle. Modules 2 and 3 formed clean
+bands across all four of their units. Module 0 sits at Nyquist and is
+unresolvable, as flagged.
+
+What is genuinely absent is **hexagonal** structure. A hexagonal grid requires
+three bands at 60° interfering constructively, and nothing in this world
+privileges 60°: it is a **square lattice with four cardinal actions**, whose
+natural angles are 0° and 90°. Bands plus square units is the periodic code
+this world's symmetry calls for. `analysis.spectral_structure` measures it;
+`periodicity_score` alone cannot and must not be used on its own.
+
+**Always look at the rate maps.** A scalar that answers one question will
+report "nothing" for every structure that is not the one it asks about.
+
 **Why place codes, mechanistically (2026-07-25).** Grid codes are optimal for
 representing position at high resolution in few units *given a downstream
 decoder that can disambiguate combinatorially*. This memory has no decoder — it

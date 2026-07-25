@@ -196,3 +196,73 @@ def field_score(rate_map: np.ndarray, threshold: float = 0.5) -> float:
         return float("nan")
     masses = ndimage.sum(positive, labels, index=range(1, n + 1))
     return float(masses.max() / max(masses.sum(), 1e-9))
+
+
+def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
+    """Classify a rate map by counting peaks in its 2D Fourier spectrum.
+
+    The periodicity score in :func:`periodicity_score` asks one question --
+    "is this hexagonal?" -- and a 1-D striped pattern answers "no" in a way
+    that is indistinguishable from noise answering "no". Both land near zero.
+    That blindness hid real structure: measured 2026-07-25, position units with
+    obvious diagonal bands scored -0.01 to -0.02.
+
+    Counting Fourier peaks separates the cases directly, because the number of
+    peaks IS the symmetry:
+
+        2 peaks  -> a band / stripe cell (one spatial frequency, one orientation)
+        4 peaks  -> a square lattice
+        6 peaks  -> a hexagonal lattice, i.e. a grid cell
+        0 peaks  -> no dominant periodicity (a blob or a gradient)
+
+    Bands matter in their own right: the standard account of how grid cells
+    arise is interference between three bands at 60 degrees to each other, so a
+    model producing bands has built the precursor rather than nothing.
+
+    Returns wavelength in cells and orientation in degrees alongside the count.
+    """
+    centred = rate_map - rate_map.mean()
+    if np.abs(centred).max() < 1e-9:
+        return {"n_peaks": 0, "wavelength": float("nan"),
+                "orientation": float("nan"), "peak_power": 0.0}
+
+    # Hann window suppresses the edge discontinuity that would otherwise smear
+    # power across all frequencies; zero-padding buys frequency resolution.
+    h, w = centred.shape
+    window = np.outer(np.hanning(h), np.hanning(w))
+    spectrum = np.abs(np.fft.fftshift(np.fft.fft2(centred * window, s=(pad, pad))))
+
+    centre = pad // 2
+    y, x = np.ogrid[:pad, :pad]
+    radius = np.hypot(y - centre, x - centre)
+    # Exclude DC and the lowest frequencies, whose "period" exceeds the arena.
+    valid = radius > 2.5
+    if not valid.any():
+        return {"n_peaks": 0, "wavelength": float("nan"),
+                "orientation": float("nan"), "peak_power": 0.0}
+
+    masked = np.where(valid, spectrum, 0.0)
+    peak = masked.max()
+    if peak < 1e-9:
+        return {"n_peaks": 0, "wavelength": float("nan"),
+                "orientation": float("nan"), "peak_power": 0.0}
+
+    # Local maxima at >= 40% of the strongest peak. Fourier spectra of real
+    # signals are symmetric, so genuine structure always appears in pairs.
+    strong = (masked >= 0.4 * peak) & (
+        masked >= ndimage.maximum_filter(masked, size=5) - 1e-12
+    )
+    labels, n = ndimage.label(strong)
+    if n == 0:
+        return {"n_peaks": 0, "wavelength": float("nan"),
+                "orientation": float("nan"), "peak_power": 0.0}
+    centres = ndimage.center_of_mass(masked, labels, range(1, n + 1))
+
+    best = max(centres, key=lambda c: masked[int(round(c[0])), int(round(c[1]))])
+    dy, dx = best[0] - centre, best[1] - centre
+    cycles_per_map = np.hypot(dy, dx) * (h / pad)  # rescale padded frequency
+    wavelength = h / cycles_per_map if cycles_per_map > 1e-9 else float("nan")
+    orientation = float(np.degrees(np.arctan2(dy, dx)) % 180.0)
+
+    return {"n_peaks": int(n), "wavelength": float(wavelength),
+            "orientation": orientation, "peak_power": float(peak)}

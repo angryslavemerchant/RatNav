@@ -41,7 +41,12 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from smallcore.analysis import field_score, periodicity_score, rate_maps
+from smallcore.analysis import (
+    field_score,
+    periodicity_score,
+    rate_maps,
+    spectral_structure,
+)
 from smallcore.config import Config
 from smallcore.graphs import assign_observations, generate_batch_fast, square_grid
 from smallcore.recurrent import SmallCoreRecurrent
@@ -159,6 +164,42 @@ def main() -> int:
 
     valid = periodicity[~np.isnan(periodicity)]
     passing = (valid >= 0.3).sum()
+
+    # The gridness score only asks "is this hexagonal?", so a 1-D band answers
+    # "no" indistinguishably from noise and both land near zero. Counting
+    # Fourier peaks says WHICH symmetry is present: 2 = band, 4 = square,
+    # 6 = hexagonal. Without this, real periodic structure reads as absence.
+    spectra = [spectral_structure(m) for m in position_maps]
+    kinds = {"band (2)": 0, "square (4)": 0, "hex (6)": 0, "none/other": 0}
+    for spec, dim_start in zip(spectra, range(len(spectra))):
+        n, wl = spec["n_peaks"], spec["wavelength"]
+        periodic = np.isfinite(wl) and wl < args.grid  # a cycle must fit
+        if periodic and n == 2:
+            kinds["band (2)"] += 1
+        elif periodic and n in (3, 4):
+            kinds["square (4)"] += 1
+        elif periodic and n in (5, 6, 7):
+            kinds["hex (6)"] += 1
+        else:
+            kinds["none/other"] += 1
+    print(
+        "spatial structure by Fourier peak count (2=band, 4=square, 6=hex):\n  "
+        + "   ".join(f"{k} {v}" for k, v in kinds.items())
+    )
+    offset = 0
+    for index, (dim, freq) in enumerate(zip(config.module_dims, config.module_freqs)):
+        block = spectra[offset : offset + dim]
+        waves = [s["wavelength"] for s in block
+                 if np.isfinite(s["wavelength"]) and s["wavelength"] < args.grid]
+        peaks = [s["n_peaks"] for s in block]
+        print(
+            f"  module {index} (designed cycle {2.0 / freq:4.1f} cells): "
+            f"measured wavelength "
+            + (f"{np.median(waves):4.1f}" if waves else " n/a")
+            + f"   peak counts {peaks}"
+        )
+        offset += dim
+    print()
 
     # The addressing key is what the retrieval objective actually constrains,
     # so it has to be scored separately from the recurrent state. Measuring
