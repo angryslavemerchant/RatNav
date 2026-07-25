@@ -209,7 +209,7 @@ You cannot read success off a loss curve. Build these first:
 | **M1** | Position stream alone; linear probe decoding true location from `e_t` | ✅ 100% decoding on held-out 50-step walks (chance 0.8%), 87.9% at step 200 |
 | **M2** | Forward read + readout, single environment | ✅ 88.9% vs 41.8% edge / 18.9% node on 100-step walks; 81.2% at 300 steps |
 | **M3** | Reverse read + drift gate | ✅ 97.4% at 300 steps vs 95.8% at 50 — degradation inverted (−1.6%); ablation without the gate degrades +4.8% |
-| **M4** | Multi-environment training, fresh observations per env | Non-trivial zero-shot accuracy |
+| **M4** | Multi-environment training, fresh observations per env | ✅ 69.6% on unseen environments against a 70.5% ceiling and a 42.2% edge agent |
 | **M5** | Analysis harness | Position units pass the periodicity threshold; memory units show localised fields |
 
 M3 is where a sloppy implementation reveals itself. M5 is the actual result.
@@ -256,6 +256,34 @@ only replaced state *between* truncation windows, leaving the gate running for
 19 of every 20 steps; it scored within a point of the full model and looked
 like evidence the gate was useless. Verify an ablation by checking the
 mechanism's own statistic goes to zero.
+
+**Where M4 landed (2026-07-25).** Trained on a pool of 8 environments sharing
+the topology, evaluated on 4 never trained on:
+
+| | accuracy | revisit ceiling | edge agent |
+|---|---|---|---|
+| 300-step, unseen | **69.6%** | 70.5% | 42.2% |
+| 100-step, unseen | **55.9%** | 55.1% | 41.9% |
+| 300-step, seen pool | 72.9% | — | — |
+
+Within 0.9 points of the ceiling on layouts never seen, and the seen-vs-unseen
+gap is 3.3 points, so almost nothing was memorised. Unlike M2/M3 the revisit
+rate is a genuine bound here: with appearance redrawn, an unvisited location is
+unknowable, so this is close to the most any architecture could do.
+
+**Training on a POOL beats training on infinite fresh environments**, which is
+backwards from the obvious expectation. Fresh-every-batch tracked the pool to
+iteration 500 (47.5% vs 46.0%) and then diverged — loss climbing 2.30 → 3.04,
+accuracy collapsing to 22.5%. Suspect the learning rate first (2e-3 was raised
+for the larger batch, and the fresh objective is far noisier since every batch
+is a different world); a pool may also act as a curriculum, giving the memory
+machinery a stable signal to bootstrap on before it has to generalise.
+
+**Large batches are nearly free here** (measured): 16 → 128 leaves wall-clock
+per iteration flat at ~1.37 s while throughput scales 8x, because the step loop
+is bound by sequential kernel launches, not arithmetic. The same measurement
+answers whether to rent GPUs: a faster card does not shorten one run, since the
+limit is launch issue rate on the CPU. Rent for parallel configurations only.
 
 **Transfer from M1 hurts (2026-07-25).** Seeding M3's operators from a trained
 M1 and continuing: 82.9%/92.3% (50/300-step). Freezing them: 76.5%/87.4%.
