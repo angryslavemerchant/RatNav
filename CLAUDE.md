@@ -314,13 +314,21 @@ flatters the model and makes accuracy look like it can exceed the bound when it
 merely exceeds revisits. Use `baselines.memory_ceiling`, not
 `oracle_memory_accuracy`.
 
-**Training on a POOL beats training on infinite fresh environments**, which is
-backwards from the obvious expectation. Fresh-every-batch tracked the pool to
-iteration 500 (47.5% vs 46.0%) and then diverged — loss climbing 2.30 → 3.04,
-accuracy collapsing to 22.5%. Suspect the learning rate first (2e-3 was raised
-for the larger batch, and the fresh objective is far noisier since every batch
-is a different world); a pool may also act as a curriculum, giving the memory
-machinery a stable signal to bootstrap on before it has to generalise.
+**Environment diversity is fine; the learning rate was not.** Fresh-every-batch
+first appeared to be *worse* than a fixed pool (22.5% vs 69.6%), which looked
+like a curriculum effect. It was not. That run used lr 2e-3, raised for the
+larger batch; at the original 9.4e-4 it reaches **67.7%**, within 2 points of
+the pool. The stable pool objective tolerated the higher rate and the
+fresh-every-batch objective — a different world in every batch, so far noisier
+gradients — did not. Divergence, not difficulty:
+
+| | lr | 300-step unseen |
+|---|---|---|
+| pool of 8 | 2e-3 | 69.6% |
+| fresh every batch | 9.4e-4 | 67.7% |
+| fresh every batch | 2e-3 | 22.5% (diverged) |
+
+Read a rising loss as divergence before theorising about the task.
 
 **Large batches are nearly free here** (measured): 16 → 128 leaves wall-clock
 per iteration flat at ~1.37 s while throughput scales 8x, because the step loop
