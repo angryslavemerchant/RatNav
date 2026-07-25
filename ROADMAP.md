@@ -23,11 +23,30 @@ suppressed almost nothing, a ceiling computed against the wrong bound, and a
 | M2 forward read + readout | done — 88.9% vs 41.8% edge agent |
 | M3 reverse read + drift gate | done — 97.4% at 300 steps, degradation inverted; gate worth 14.6 points |
 | M4 multi-environment, zero-shot | done — **71.1% on unseen environments, 98% of the 72.5% ceiling** |
-| M5 analysis harness | built and validated. Memory fields yes (0.80). **Periodic position codes no** (1/120 units) |
+| M5 analysis harness | **periodic codes in 100% of units** — band modules sharing wavelength and orientation. No hexagons, correct for a square world |
+| M6 continuous movement | passes — 17.96% vs 5.82% baseline, half the transition parameters. Only 53% of ceiling; the discrete observation model is the suspect |
 
-The system works. M5 asks whether it works *the elegant way*, and so far the
-answer is no: it found place codes, not grid codes. Two mechanistic
-explanations have been tested and refuted.
+The system works, and the codes are periodic. M5's original "no periodic
+structure" verdict was a metric artefact: gridness asks only "is this
+hexagonal?", so bands score ≈0 exactly like noise. Counting Fourier peaks shows
+periodic structure in every configuration, rising to **100% of units** under
+capacity pressure, organised into modules that share wavelength and
+orientation — learned with **no positional supervision at all**.
+
+Hexagons are genuinely absent, and that is the right answer: they need three
+bands interfering at 60°, and the modules each settle on a single orientation.
+On a hex topology the orientations moved to the hex axes (8°, 121°) but stayed
+bands, so **orientation follows the world's symmetry while hexagonal
+combination does not emerge**.
+
+**Next change is the patch observation model.** M6 established that the
+continuous position stream trains and beats baseline with half the parameters,
+but it reached only 53% of ceiling because it pairs continuous movement with a
+*piecewise-constant* symbol field: the task demands sub-cell precision while
+giving zero information about sub-cell position, and observation similarity
+carries no spatial information, which cripples the reverse read. Continuous
+movement and continuous observation are **one change, not two** — they only
+make sense together.
 
 ## Rung 0 — close out M5
 
