@@ -89,13 +89,9 @@ def run_walk(
         state = state.detach()
 
         output, state = model.run_chunk(
-            state, actions[:, start - 1 : stop - 1], one_hot[:, start:stop]
+            state, actions[:, start - 1 : stop - 1], one_hot[:, start:stop],
+            use_gate=use_gate,
         )
-        if not use_gate:
-            # Ablation: keep the architecture, discard the correction.
-            state = type(state)(
-                output.integrated[:, -1], state.past_codes, state.past_obs
-            )
 
         target = indices[:, start:stop]
         flat = target.reshape(-1)

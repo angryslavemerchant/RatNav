@@ -122,6 +122,7 @@ class SmallCoreRecurrent(nn.Module):
         state: RecurrentState,
         actions: torch.Tensor,
         observations: torch.Tensor,
+        use_gate: bool = True,
     ) -> tuple[ChunkOutput, RecurrentState]:
         """Advance one truncation window.
 
@@ -130,6 +131,11 @@ class SmallCoreRecurrent(nn.Module):
                 detached by the caller.
             actions: ``(B, L)`` action leading *into* each step of the chunk.
             observations: ``(B, L, V)`` one-hot observation *at* each step.
+            use_gate: When False, the reverse read is skipped entirely and the
+                position stays purely path-integrated. This has to be handled
+                *inside* the loop -- suppressing the correction only between
+                windows leaves it running for every step within one, which
+                ablates almost nothing.
         """
         batch, length, _ = observations.shape
 
@@ -174,12 +180,15 @@ class SmallCoreRecurrent(nn.Module):
             # 3-4. the symbol is now revealed: reverse-read and correct.
             observation = observations[:, i]
             observation_proj = self.to_value(observation)
-            retrieved_code = attend(
-                observation_proj,
-                past_obs_keys, past_code_values,
-                recent_obs_proj, recent_codes, beta,
-            )
-            code, gate = self.gate(code_pi, retrieved_code, n_memories > 0)
+            if use_gate:
+                retrieved_code = attend(
+                    observation_proj,
+                    past_obs_keys, past_code_values,
+                    recent_obs_proj, recent_codes, beta,
+                )
+                code, gate = self.gate(code_pi, retrieved_code, n_memories > 0)
+            else:
+                code, gate = code_pi, torch.zeros_like(code_pi)
 
             integrated.append(code_pi)
             gated.append(code)
