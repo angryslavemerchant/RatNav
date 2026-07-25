@@ -127,6 +127,14 @@ def main() -> int:
     )
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument(
+        "--l2-code", type=float, default=None, dest="l2_code",
+        help="L2 on the position code. The brief's gotcha 4 says to suspect "
+        "this first when rate maps look unstructured: pressure toward an "
+        "efficient code is meant to be much of what drives periodicity, since "
+        "a multi-scale periodic code resolves position in far fewer units than "
+        "a place code does.",
+    )
+    parser.add_argument(
         "--grid", type=int, default=11,
         help="arena width/height. Periodicity is only detectable when several "
         "cycles fit inside the arena, so 11 is cramped for M5 even with well "
@@ -156,6 +164,8 @@ def main() -> int:
         config = replace(config, batch_size=args.batch_size)
     if args.lr:
         config = replace(config, lr=args.lr)
+    if args.l2_code is not None:
+        config = replace(config, l2_position_code=args.l2_code)
     if args.module_freqs:
         freqs = tuple(float(f) for f in args.module_freqs.split(","))
         if len(freqs) != len(config.module_dims):

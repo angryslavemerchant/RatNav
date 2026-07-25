@@ -244,11 +244,38 @@ architecture does not produce grid codes, retest with frequencies whose cycles
 land in roughly 3–8 cells, or a much larger grid. The measured ~x3 spacing
 between modules is also far wider than the biological 1.4–1.7.
 
-Other live suspects, in order: the L2 on the position code (gotcha 4); the
-drift gate, which pulls codes toward *specific remembered positions* and so
-actively favours place-like over grid-like solutions; and the plain possibility
-that place codes solve an 11x11 task perfectly well and nothing pressures the
-model toward periodicity.
+**Two suspects tested and refuted (2026-07-25).**
+
+*Frequencies.* Retrained with cycles 3.0 / 4.2 / 5.9 / 8.2 / 11.5 cells, all
+fitting the arena, ratio 1.4. Accuracy improved — 71.1% against a 72.5%
+ceiling, i.e. 98% of achievable, up from 95% — but periodicity did not move:
+1/120 units, mean −0.390 against −0.405 before. The frequency mismatch was
+real and worth fixing; it was not the reason.
+
+*The drift gate.* Suspected of anchoring codes to specific remembered
+positions and so favouring place-like solutions. The gate-ablated model scores
+*worse* (mean −0.561 vs −0.390), so the gate is not suppressing periodicity and
+may mildly help.
+
+Remaining suspects, in order:
+
+1. **L2 on the position code** (gotcha 4). A multi-scale periodic code resolves
+   position in far fewer units than a place code, so pressure toward an
+   efficient code is meant to be much of what drives periodicity. `--l2-code`
+   exists to sweep it; 0.01 is the shipped value.
+2. **Arena size.** Even corrected, only 1.3–2.6 cycles fit in 11 cells.
+   Gridness was designed for arenas holding several periods. The 21x21 run
+   tests this.
+3. **Nothing requires periodicity.** Place codes solve this task, and the model
+   is under no pressure to find a more elegant solution. If so, the honest
+   result is that this architecture on this task produces place codes — which
+   is a real finding, and consistent with published scepticism that grid codes
+   emerge robustly from trained path integrators rather than from carefully
+   chosen readouts, regularisers and nonlinearities.
+4. **Signed activations.** Units are tanh then LayerNorm, so a "rate map" here
+   is of a signed quantity, where grid cells are nonnegative firing rates. The
+   LayerNorm also couples units at each step, which could smear per-unit
+   spatial structure.
 
 **Where M2 landed (2026-07-25).** Walks start at a *random* location from M2
 onward. Under M1's fixed start the readout can memorise the map — position
