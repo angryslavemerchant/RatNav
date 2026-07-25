@@ -214,6 +214,11 @@ You cannot read success off a loss curve. Build these first:
 
 M3 is where a sloppy implementation reveals itself. M5 is the actual result.
 
+**Work after M5 is planned in [ROADMAP.md](ROADMAP.md)** — seven rungs, each
+with a falsifiable prediction, plus the specific results that should reorder
+them. It is provisional by design: two hypotheses have already been refuted and
+one claim retracted, and the ordering assumes more of both.
+
 **Where M5 landed (2026-07-25) — half passes, half does not.**
 
 Memory-stream units **do** develop localised fields: mean field score 0.80,
