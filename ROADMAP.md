@@ -40,6 +40,53 @@ it is consistent with published scepticism that grid codes emerge robustly from
 trained path integrators rather than from carefully chosen readouts,
 regularisers and nonlinearities.
 
+## Rung 0b — capacity pressure (added 2026-07-25, user hypothesis)
+
+Grid codes may only appear when a place code becomes *unaffordable*. Measured
+ratios so far:
+
+| arena | locations | position dims | locations per unit | periodic units |
+|---|---|---|---|---|
+| 11×11 | 121 | 120 | 1.0 | 1/120 |
+| 21×21 | 441 | 120 | 3.7 | 0/120 |
+
+At 1.0 the model can nearly afford a dimension per location, so there is no
+pressure toward an efficient code at all. 3.7 improved mean periodicity
+slightly (−0.390 → −0.369) but passed nothing.
+
+**Test it by shrinking the code, not by changing the world.** `--module-dims`
+takes 21×21 to 14.7 or 22.1 locations per unit while holding everything else
+fixed. Continuous space (Rung 4) is a *poor* test of this hypothesis despite
+seeming like a natural one: it changes the action representation, arena size,
+observation structure and loss simultaneously, so a positive result would not
+be attributable.
+
+**Prediction:** if capacity is the driver, periodicity rises monotonically with
+locations-per-unit. If 15–22 locations per unit still produces nothing, capacity
+is refuted too and the remaining suspect is structural — signed tanh/LayerNorm
+activations where grid cells are nonnegative rates.
+
+## Rung 2b — hierarchical place (added 2026-07-25, user proposal)
+
+The current memory is flat: one query, one pass over everything, retrieving
+fine-grained *locations*. A second level would aggregate a **set** of retrieved
+memories into a coarse region descriptor — "what kind of place is this" — and
+use it to prime or gate the fine search.
+
+Terminology note: a place cell in the literature is fine-grained, so our cache
+entries are already place cells in the conventional sense. What this rung adds
+is the *coarse* end of the scale — closer to the dorsal-to-ventral place-field
+size gradient (fields growing from centimetres to metres) and to context coding
+via global remapping.
+
+Solves a real scaling problem: as memory grows, searching all of it is both
+expensive and noisier, which is why β = log(n) exists at all. Narrowing the
+search first is the standard fix, and it connects to the hierarchy idea of one
+navigator within a room and another over the graph of rooms.
+
+Sits naturally after the codebook (Rung 2), whose slots are the obvious thing
+to aggregate over.
+
 ## Rung 1 — conjunctive reverse read
 
 Concatenate the position estimate onto the reverse read's query and keys, with

@@ -127,6 +127,14 @@ def main() -> int:
     )
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument(
+        "--module-dims", type=str, default=None, dest="module_dims",
+        help="comma-separated dims per module. Shrinking the position code "
+        "raises the locations-per-unit ratio, which is the single-variable "
+        "test of whether grid codes only appear when a place code becomes "
+        "unaffordable. 11x11 with 120 dims is 1.0 locations per unit -- almost "
+        "no pressure at all.",
+    )
+    parser.add_argument(
         "--l2-code", type=float, default=None, dest="l2_code",
         help="L2 on the position code. The brief's gotcha 4 says to suspect "
         "this first when rate maps look unstructured: pressure toward an "
@@ -164,6 +172,9 @@ def main() -> int:
         config = replace(config, batch_size=args.batch_size)
     if args.lr:
         config = replace(config, lr=args.lr)
+    if args.module_dims:
+        dims = tuple(int(d) for d in args.module_dims.split(","))
+        config = replace(config, module_dims=dims)
     if args.l2_code is not None:
         config = replace(config, l2_position_code=args.l2_code)
     if args.module_freqs:
