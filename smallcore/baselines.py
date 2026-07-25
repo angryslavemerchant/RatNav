@@ -15,18 +15,21 @@ appearance-keyed table can resolve it. A model that tracks *where it is* can.
 If the model cannot beat these, its memory is doing nothing a lookup table
 does not already do.
 
-:func:`oracle_memory_accuracy` is the other end of the scale: what a model
-could achieve with a *perfect* position code and this exact memory design.
-Since the forward read can only return observations from places already
-visited, its ceiling is the revisit rate of the walk. Reporting it stops us
-mistaking "memory is working" for "memory has run out of things to know".
+:func:`memory_ceiling` is the other end of the scale: the most any model could
+score once appearance cannot be memorised, which is the revisit rate PLUS what
+guessing earns on the locations never visited. :func:`oracle_memory_accuracy`
+returns the bare revisit rate and is the weaker figure -- quoting it as the
+ceiling flatters the model by ~2 points on 300-step walks, and makes accuracy
+look like it can exceed the bound when it merely exceeds the revisit rate.
+Reporting a ceiling at all stops us mistaking "memory is working" for "memory
+has run out of things to know".
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from smallcore.graphs import Walk
+from smallcore.graphs import Environment, Walk
 
 
 class NodeAgent:
@@ -120,6 +123,40 @@ def oracle_memory_accuracy(walks: list[Walk]) -> float:
             seen.add(location)
             total += 1
     return correct / max(total, 1)
+
+
+def memory_ceiling(walks: list[Walk], env: "Environment") -> float:
+    """The most any model could score when appearance cannot be memorised.
+
+    :func:`oracle_memory_accuracy` counts only revisits, which understates the
+    bound: a location never visited this walk is not a total loss, because an
+    agent can still *guess*. The strongest legitimate guess knows the
+    environment's symbol histogram -- how many locations carry each symbol --
+    without knowing which symbol sits where, and names the most common one.
+
+        ceiling = revisit_rate + (1 - revisit_rate) * P(most common symbol)
+
+    On the 11x11 grid with 45 symbols that guess lands ~6.6% of the time, worth
+    roughly 2 points on 300-step walks. Quoting the bare revisit rate as the
+    ceiling flatters the model, and makes it look like accuracy can exceed the
+    bound when it merely exceeds the revisit rate.
+
+    This is only a ceiling where appearance is redrawn per environment (M4). In
+    M2/M3 the layout could be learned into the weights, and measured runs beat
+    it comfortably.
+    """
+    counts = np.bincount(env.observations, minlength=env.n_observations)
+    p_guess = counts.max() / env.topology.n_locations
+    total = 0.0
+    steps = 0
+    for walk in walks:
+        seen: set[int] = {int(walk.locations[0])}
+        for t in range(1, len(walk)):
+            location = int(walk.locations[t])
+            total += 1.0 if location in seen else p_guess
+            seen.add(location)
+            steps += 1
+    return total / max(steps, 1)
 
 
 def chance_accuracy(walks: list[Walk], n_observations: int) -> float:

@@ -209,7 +209,7 @@ You cannot read success off a loss curve. Build these first:
 | **M1** | Position stream alone; linear probe decoding true location from `e_t` | ✅ 100% decoding on held-out 50-step walks (chance 0.8%), 87.9% at step 200 |
 | **M2** | Forward read + readout, single environment | ✅ 88.9% vs 41.8% edge / 18.9% node on 100-step walks; 81.2% at 300 steps |
 | **M3** | Reverse read + drift gate | ✅ 97.4% at 300 steps vs 95.8% at 50 — degradation inverted (−1.6%); ablation without the gate degrades +4.8% |
-| **M4** | Multi-environment training, fresh observations per env | ✅ 69.6% on unseen environments against a 70.5% ceiling and a 42.2% edge agent |
+| **M4** | Multi-environment training, fresh observations per env | ✅ 69.6% on unseen environments — 95% of the 73.5% ceiling, vs a 42.2% edge agent |
 | **M5** | Analysis harness | Position units pass the periodicity threshold; memory units show localised fields |
 
 M3 is where a sloppy implementation reveals itself. M5 is the actual result.
@@ -260,16 +260,23 @@ mechanism's own statistic goes to zero.
 **Where M4 landed (2026-07-25).** Trained on a pool of 8 environments sharing
 the topology, evaluated on 4 never trained on:
 
-| | accuracy | revisit ceiling | edge agent |
-|---|---|---|---|
-| 300-step, unseen | **69.6%** | 70.5% | 42.2% |
-| 100-step, unseen | **55.9%** | 55.1% | 41.9% |
-| 300-step, seen pool | 72.9% | — | — |
+| | accuracy | ceiling | revisit rate | edge agent |
+|---|---|---|---|---|
+| 300-step, unseen | **69.6%** | 73.5% | 71.6% | 42.2% |
+| 100-step, unseen | **55.9%** | 60.0% | 57.2% | 41.9% |
+| 300-step, seen pool | 72.9% | — | — | — |
 
-Within 0.9 points of the ceiling on layouts never seen, and the seen-vs-unseen
-gap is 3.3 points, so almost nothing was memorised. Unlike M2/M3 the revisit
-rate is a genuine bound here: with appearance redrawn, an unvisited location is
-unknowable, so this is close to the most any architecture could do.
+The model reaches **95% of the ceiling** on layouts never seen, and the
+seen-vs-unseen gap is 3.3 points, so almost nothing was memorised.
+
+**The ceiling is NOT the revisit rate** — that mistake was made and corrected
+here. A location never visited this walk is still worth guessing at: an oracle
+knowing the environment's symbol histogram names the most common symbol and is
+right 6.6% of the time. So the bound is `revisit + (1 - revisit) * 6.6%`, about
+2 points above the revisit rate, and quoting the bare revisit rate both
+flatters the model and makes accuracy look like it can exceed the bound when it
+merely exceeds revisits. Use `baselines.memory_ceiling`, not
+`oracle_memory_accuracy`.
 
 **Training on a POOL beats training on infinite fresh environments**, which is
 backwards from the obvious expectation. Fresh-every-batch tracked the pool to

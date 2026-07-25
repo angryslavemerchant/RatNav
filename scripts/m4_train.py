@@ -21,8 +21,10 @@ movements compose and (b) what has been observed *in the current walk*.
 So expect accuracy to fall relative to M3's 97.4%, and expect the revisit rate
 to become a genuine ceiling rather than the reference point it was in M2/M3.
 That is not a regression: it is the task finally being the one the architecture
-was designed for. The number that matters is how close to the revisit ceiling
-the model gets on an environment it has never seen.
+was designed for. The number that matters is how close to the ceiling the model
+gets on an environment it has never seen -- and the ceiling is the revisit rate
+plus what guessing earns on locations never visited, not the revisit rate
+alone (see ``smallcore.baselines.memory_ceiling``).
 
 Baselines are refitted per evaluation environment, since a node/edge table from
 a different observation assignment is meaningless in this one.
@@ -46,6 +48,7 @@ from smallcore.baselines import (
     EdgeAgent,
     NodeAgent,
     chance_accuracy,
+    memory_ceiling,
     oracle_memory_accuracy,
 )
 from smallcore.config import Config
@@ -81,6 +84,7 @@ def evaluate(model, env, config, rng, device, length, window, n_walks=32) -> dic
         .fit(fitting)
         .accuracy(walks),
         revisit=oracle_memory_accuracy(walks),
+        ceiling=memory_ceiling(walks, env),
         chance=chance_accuracy(walks, env.n_observations),
     )
     return metrics
@@ -232,11 +236,11 @@ def main() -> int:
             unseen = averaged(
                 model, held_out, config, rng, device, 300, args.window
             )
-            headroom = unseen["accuracy"] - unseen["revisit"]
+            headroom = unseen["accuracy"] - unseen["ceiling"]
             print(
                 f"  iter {iteration:>5}  loss {stats['loss']:.3f}  "
                 f"unseen-env 300-step {unseen['accuracy']:.2%}  "
-                f"(revisit ceiling {unseen['revisit']:.2%}, "
+                f"(ceiling {unseen['ceiling']:.2%}, "
                 f"vs ceiling {headroom:+.2%})  "
                 f"edge {unseen['edge']:.2%}  gate {stats['gate']:.3f}  "
                 f"({time.time() - began:.0f}s)"
@@ -269,11 +273,11 @@ def main() -> int:
     print(
         f"\nfinal, environments never trained on:\n"
         f"  300-step accuracy  {unseen_300['accuracy']:.2%}  "
-        f"(revisit ceiling {unseen_300['revisit']:.2%}, "
-        f"edge {unseen_300['edge']:.2%})\n"
+        f"(ceiling {unseen_300['ceiling']:.2%} = revisit "
+        f"{unseen_300['revisit']:.2%} + guessing, edge {unseen_300['edge']:.2%})\n"
         f"  100-step accuracy  {unseen_100['accuracy']:.2%}  "
-        f"(revisit ceiling {unseen_100['revisit']:.2%}, "
-        f"edge {unseen_100['edge']:.2%})"
+        f"(ceiling {unseen_100['ceiling']:.2%} = revisit "
+        f"{unseen_100['revisit']:.2%} + guessing, edge {unseen_100['edge']:.2%})"
     )
     if pool:
         print(
