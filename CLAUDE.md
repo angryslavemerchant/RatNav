@@ -210,9 +210,45 @@ You cannot read success off a loss curve. Build these first:
 | **M2** | Forward read + readout, single environment | ✅ 88.9% vs 41.8% edge / 18.9% node on 100-step walks; 81.2% at 300 steps |
 | **M3** | Reverse read + drift gate | ✅ 97.4% at 300 steps vs 95.8% at 50 — degradation inverted (−1.6%); ablation without the gate degrades +4.8% |
 | **M4** | Multi-environment training, fresh observations per env | ✅ 69.6% on unseen environments — 95% of the 73.5% ceiling, vs a 42.2% edge agent |
-| **M5** | Analysis harness | Position units pass the periodicity threshold; memory units show localised fields |
+| **M5** | Analysis harness | ⚠️ Built and validated. Memory units DO show localised fields (mean 0.80). Position units do NOT become periodic: 1/120 reach 0.30, mean −0.41 |
 
 M3 is where a sloppy implementation reveals itself. M5 is the actual result.
+
+**Where M5 landed (2026-07-25) — half passes, half does not.**
+
+Memory-stream units **do** develop localised fields: mean field score 0.80,
+best 1.00. That half of §6 holds.
+
+Position units **do not** become periodic. Only 1 of 120 reaches the 0.30
+threshold and the mean is −0.41 (M3's model: 2/120, mean −0.43). The rate maps
+show single blobs, inverted blobs and edge gradients — **place-like and
+boundary-like codes, not grid-like ones**. Position units also score 0.93 mean
+*field*, i.e. strongly localised, which is the opposite of what a periodic code
+looks like.
+
+Before blaming the architecture, check the arithmetic: the rotation advances
+`pi * freq` per step, so a module's full cycle is `2 / freq` cells.
+
+| module | freq | cycle | resolvable in an 11-cell arena? |
+|---|---|---|---|
+| 0 | 0.99 | 2.0 | no — at Nyquist on a discrete grid |
+| 1 | 0.30 | 6.7 | yes — ~1.6 periods fit |
+| 2 | 0.09 | 22 | no — exceeds the arena |
+| 3 | 0.03 | 67 | no — exceeds the arena |
+| 4 | 0.01 | 200 | no — exceeds the arena |
+
+**Four of five modules cannot express spatial periodicity in this arena at
+all** — they can only look like gradients, which is exactly what the maps show.
+The §8 frequencies were never matched to an 11x11 world. Before concluding the
+architecture does not produce grid codes, retest with frequencies whose cycles
+land in roughly 3–8 cells, or a much larger grid. The measured ~x3 spacing
+between modules is also far wider than the biological 1.4–1.7.
+
+Other live suspects, in order: the L2 on the position code (gotcha 4); the
+drift gate, which pulls codes toward *specific remembered positions* and so
+actively favours place-like over grid-like solutions; and the plain possibility
+that place codes solve an 11x11 task perfectly well and nothing pressures the
+model toward periodicity.
 
 **Where M2 landed (2026-07-25).** Walks start at a *random* location from M2
 onward. Under M1's fixed start the readout can memorise the map — position

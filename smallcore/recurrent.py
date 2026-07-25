@@ -70,6 +70,7 @@ class ChunkOutput:
     integrated: torch.Tensor  # (B, L, D) pre-gate codes
     gated: torch.Tensor  # (B, L, D) post-gate codes
     gate: torch.Tensor  # (B, L, D) gate values, for analysis
+    retrieved: torch.Tensor  # (B, L, obs_dim) memory-stream output, for M5
 
 
 class SmallCoreRecurrent(nn.Module):
@@ -156,7 +157,7 @@ class SmallCoreRecurrent(nn.Module):
         recent_obs_proj = state.past_codes.new_zeros(batch, 0, self.config.obs_dim)
         recent_obs: list[torch.Tensor] = []
 
-        logits, logits_position = [], []
+        logits, logits_position, retrievals = [], [], []
         integrated, gated, gates = [], [], []
 
         for i in range(length):
@@ -176,6 +177,7 @@ class SmallCoreRecurrent(nn.Module):
             )
             logits.append(step_logits.squeeze(1))
             logits_position.append(step_logits_pos.squeeze(1))
+            retrievals.append(retrieved_obs)
 
             # 3-4. the symbol is now revealed: reverse-read and correct.
             observation = observations[:, i]
@@ -210,6 +212,7 @@ class SmallCoreRecurrent(nn.Module):
             integrated=torch.stack(integrated, dim=1),
             gated=torch.stack(gated, dim=1),
             gate=torch.stack(gates, dim=1),
+            retrieved=torch.stack(retrievals, dim=1),
         )
         new_state = RecurrentState(
             code,
