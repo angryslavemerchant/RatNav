@@ -137,7 +137,19 @@ navigator within a room and another over the graph of rooms.
 Sits naturally after the codebook (Rung 2), whose slots are the obvious thing
 to aggregate over.
 
-## Rung 0c — auxiliary spatial head (the M5 diagnostic that matters)
+## Rung 0c — auxiliary spatial head — **THE LAST M5 EXPERIMENT**
+
+Run this, then close M5 whatever the outcome. Six mechanisms have been refuted
+(frequencies, drift gate, arena size, L2, capacity, nonlinear bottleneck) and
+every one of them removed an obstacle rather than supplying a reward. This is
+the only remaining test that supplies one.
+
+**Do both ingredients together**, since the published recipe needs both and
+either alone is expected to fail: place-cell-shaped targets (Gaussian bumps
+whose similarity structure is what yields hexagons) AND nonnegative
+activations in the position stream. Currently we have neither — units are tanh
+then LayerNorm, so rate maps are of a *signed* quantity where grid cells are
+nonnegative rates.
 
 Add a head off the position stream predicting **place-cell-shaped targets**
 (a population of Gaussian bumps over locations), weighted small, everything
@@ -166,7 +178,7 @@ Outcomes:
   grid codes**, because what makes a code decodable is not what makes it a good
   address. That would make M5's outcome a finding rather than a failure.
 
-## Rung 0d — nonlinear grid→place bottleneck (2026-07-25, user proposal)
+## Rung 0d — nonlinear grid→place bottleneck — **REFUTED 2026-07-25**
 
 **The leading hypothesis for M5, and the first that is not a knob.**
 
@@ -206,10 +218,26 @@ alone would fail because nothing rewards it. **Together is the first
 configuration where a grid code is both allowed and advantageous.**
 
 **Prediction:** a division of labour — `e_t` becomes grid-like while the head's
-output becomes place-like. M5 must therefore measure BOTH streams and expect
-different answers from each. If both stay place-like, the nonlinearity was not
-the obstacle. If `e_t` goes periodic and accuracy holds, that is the result the
-whole M5 exercise has been chasing.
+output becomes place-like.
+
+**RESULT: neither happened.** Two arms, identical but for the ReLU on a
+30 → 256 key:
+
+| | position periodicity | key periodicity | key field | accuracy vs ceiling |
+|---|---|---|---|---|
+| linear key | −0.024 | +0.016 | 0.701 | 98.8% |
+| nonlinear key | −0.068 | −0.038 | 0.436 | 98.0% |
+
+The position code is no more periodic with the nonlinearity than without, and
+the key did not become more place-like either — its field score *fell*.
+Accuracy was unaffected, so the ReLU is not harmful, it simply changes nothing.
+The linear projection was not the obstacle. The argument that a linear map
+cannot convert periodic similarity to unimodal is still true; it was not the
+binding constraint.
+
+**The pattern across all six refutations:** every intervention tested so far
+*removed an obstacle* to periodicity. Not one of them *rewarded* it. That is
+what Rung 0c exists to fix, and it is the last M5 experiment worth running.
 
 ## Rung 1 — conjunctive reverse read
 
