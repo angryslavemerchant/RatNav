@@ -285,13 +285,42 @@ nonlinearities — and the model reaches 98% of the information-theoretic ceilin
 with the codes it does build, so nothing pressures it toward a more elegant
 solution.
 
-One untested structural suspect remains, and it is a change to the
-architecture rather than a knob: units are **tanh then LayerNorm**, so a rate
-map here is of a *signed* quantity, where grid cells are nonnegative firing
-rates. The LayerNorm also couples all 120 units at every step, which could
-smear per-unit spatial structure. Testing it means a nonnegative activation and
-per-module rather than global normalisation — worth doing only if grid codes
-are wanted for their own sake, since place codes already saturate the task.
+**Why place codes, mechanistically (2026-07-25).** Grid codes are optimal for
+representing position at high resolution in few units *given a downstream
+decoder that can disambiguate combinatorially*. This memory has no decoder — it
+has a **dot product**. And the two codes have opposite similarity structure:
+
+* a place-like code gives `e(x)·e(y)` a single clean peak decaying with
+  distance, so a query retrieves memories near x and nothing else;
+* a grid-like code is periodic per module, so the dot product has a main peak
+  **plus side lobes** wherever modules re-align — a query at x also partially
+  retrieves memories a full period away, at an unrelated location.
+
+For attention those side lobes are spurious retrievals. **The model is not
+failing to find the optimum; it found the optimum for its actual objective.**
+The loss rewards retrieving the right memory, and unimodal similarity beats
+periodic similarity at that.
+
+Note "accurate position" here means *lands in the right neighbourhood*, not
+*decodes to precise coordinates* — measured retrieval distance is 1.20 cells
+against 3.59 at chance. The two senses of accuracy come apart and the
+architecture only ever asked for one.
+
+This also retro-explains the M1 transfer result: operators optimised for linear
+decodability (99.6% probe) scored 76.5% against 95.8% from scratch as memory
+addresses. Two independent measurements, one explanation.
+
+**Consequence:** continuous space will not fix this either — a dot product
+prefers unimodal similarity regardless of discreteness. Go continuous for its
+own payoffs (closes the lookup-table escape, halves transition parameters,
+fixes measurement resolution, prerequisite for an image world), not for grid
+cells. And an auxiliary spatial head (ROADMAP Rung 0c) creates pressure toward
+grid codes that directly *fights* the retrieval pressure, which is why it is
+predicted to cost accuracy.
+
+One structural suspect is still untested: units are **tanh then LayerNorm**, so
+a rate map here is of a *signed* quantity where grid cells are nonnegative
+rates, and the LayerNorm couples all units every step.
 
 **Where M2 landed (2026-07-25).** Walks start at a *random* location from M2
 onward. Under M1's fixed start the readout can memorise the map — position
