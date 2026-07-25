@@ -160,6 +160,18 @@ def main() -> int:
     valid = periodicity[~np.isnan(periodicity)]
     passing = (valid >= 0.3).sum()
 
+    # The addressing key is what the retrieval objective actually constrains,
+    # so it has to be scored separately from the recurrent state. Measuring
+    # only the state cannot distinguish "no periodic codes anywhere" from
+    # "periodic codes upstream of a place-like key" (ROADMAP Rung 0d).
+    print(
+        f"ADDRESSING KEY, {key_periodicity.size} units "
+        f"({'nonlinear' if getattr(config, 'nonlinear_key', False) else 'linear'}"
+        f" projection):\n"
+        f"  mean periodicity   {np.nanmean(key_periodicity):+.3f}\n"
+        f"  mean field score   {np.nanmean(key_fields):.3f}\n"
+    )
+
     # Per-module breakdown: the modules are initialised at different spatial
     # scales, so if the prior is doing anything they should not score alike.
     # A module cannot show spatial periodicity the arena is too small to hold.
