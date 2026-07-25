@@ -22,11 +22,12 @@ having been here *in this walk*. That makes the forward read load-bearing,
 which is the thing M2 exists to test. ``--fixed-start`` runs the degenerate
 version for comparison.
 
-The consequence is a real ceiling: the memory can only return observations from
-places already visited, so perfect play equals the walk's revisit rate. That
-number is reported as ``oracle memory`` and is the honest target, not 100%.
-Anchoring an unknown origin to what is actually visible is the reverse read's
-job, and arrives in M3.
+``revisit rate`` is reported alongside: the ceiling for a model that does
+nothing but look up what it saw last time it stood here. The model can exceed
+it, and does -- training on one environment lets it learn that environment's
+layout, so retrieval can serve to establish *where it is* and the map supplies
+the rest. Beating the revisit rate is therefore evidence of localisation rather
+than lookup.
 """
 
 from __future__ import annotations
@@ -229,7 +230,7 @@ def main() -> int:
                 f"acc {metrics['accuracy']:.2%}  "
                 f"(pos-only {metrics['accuracy_position']:.2%})  "
                 f"node {metrics['node']:.2%}  edge {metrics['edge']:.2%}  "
-                f"ceiling {metrics['oracle_memory']:.2%}  "
+                f"revisit {metrics['oracle_memory']:.2%}  "
                 f"({time.time() - began:.0f}s)"
             )
             if run is not None:
@@ -273,7 +274,7 @@ def main() -> int:
         f"  most common     {final['chance']:.2%}\n"
         f"  oracle memory   {final['oracle_memory']:.2%}  (revisit-rate ceiling)\n"
         f"\n300-step walks: {long_walk['accuracy']:.2%} "
-        f"(edge {long_walk['edge']:.2%}, ceiling {long_walk['oracle_memory']:.2%})"
+        f"(edge {long_walk['edge']:.2%}, revisit {long_walk['oracle_memory']:.2%})"
     )
 
     beat_baselines = final["accuracy"] > max(final["edge"], final["node"])

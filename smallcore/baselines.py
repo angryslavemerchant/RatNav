@@ -96,14 +96,20 @@ class EdgeAgent:
 
 
 def oracle_memory_accuracy(walks: list[Walk]) -> float:
-    """Accuracy of a perfect position code driving this exact memory design.
+    """Revisit rate: the ceiling for *pure* retrieve-what-was-here prediction.
 
-    At step ``t`` the memory holds observations from steps before ``t``. With a
-    flawless position code the model retrieves the right one exactly when the
-    current location has been visited earlier in the walk, and cannot possibly
-    know otherwise. So this is the revisit rate -- the ceiling for any
-    within-episode positional memory, and the number the model should be
-    compared against rather than 100%.
+    At step ``t`` the memory holds observations from steps before ``t``. A model
+    doing nothing but "look up what I saw last time I stood here" is right
+    exactly when the current location was visited earlier in the same walk, so
+    this is that strategy's ceiling.
+
+    It is NOT a ceiling on the model, and measured runs exceed it. A model
+    trained repeatedly on one environment can also learn that environment's
+    layout into its weights; retrieval then serves to work out *where it is*,
+    after which a never-before-visited location is still predictable from the
+    learned map. Exceeding this number is evidence of localisation rather than
+    lookup, which is a stronger result than matching it -- but it also means
+    the figure should be read as a reference point, not a bound.
     """
     correct = total = 0
     for walk in walks:
