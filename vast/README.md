@@ -14,10 +14,15 @@ operational history worth reading before renting anything.
   measure a path this project never takes and are skipped
   (`--skip download,bank,cpu`). `thresholds_smallcore.json` keeps only the
   broken-hardware floors.
-- **Rent for throughput, not speed.** The model is ~50k parameters and
-  kernel-launch bound on the sequential position recurrence, not FLOP bound.
-  Measured locally: a faster card buys very little on one run. The win is
-  running *many configurations at once*. Default profile is `cheap`.
+- **Rent for SPEED, and pick the CPU. Measured 2026-07-25: 9.7x faster.**
+  The recurrence is kernel-launch bound, and launch issue rate is *CPU-side*
+  work — so the host CPU is the bottleneck, not the GPU. On the identical
+  21x21 / 30-dim job: local 2.46 s/iter, an RTX 5090 host with a Core Ultra 9
+  285K 0.25 s/iter. An earlier conclusion that "a faster card does not shorten
+  a single run" was drawn from batch-scaling on ONE machine and never tested
+  across machines; it was wrong. **Prefer high single-thread consumer CPUs
+  (Core Ultra, Ryzen) over many-core EPYC/Xeon** — the opposite of what the
+  previous project wanted, because that one was GPU-bound and this one is not.
 - **`destroy --all` is scoped to this repo.** The account runs instances for
   other projects concurrently; `--all` destroys only what
   `.vast/instances.json` records. `--all-remote` is the unscoped version and
@@ -66,8 +71,19 @@ python vast/launch.py destroy [--id ID | --all]
 - `python vast/launch.py logs` — markers: `ONSTART_BEGIN`,
   `BENCHMARK_JSON {...}`, `GATE_PASSED`/`GATE_FAILED`, `TRAIN_LAUNCHED`,
   `TRAIN_EXIT`, `RUN_COMPLETE`, `SELF_DESTROY`.
-- Empty logs past ~8 minutes means a silent zombie, not a slow boot — destroy
-  and relaunch on a different `machine_id` (see OFFER_JUDGEMENT.md).
+- **`vastai logs` can be silent on a perfectly healthy instance.** On image tag
+  `pytorch_cuda-13.2.1-auto` (2026-07-25) provisioning output never reached
+  `vastai logs` at all: the instance had cloned, installed, passed its health
+  gate and started training, while the log showed only ssh port-forward noise.
+  The old rule "empty logs past ~8 minutes means a zombie, destroy it" would
+  have killed it. **SSH in and read `/workspace/onstart.log` and
+  `/workspace/train.log` before destroying anything.**
+
+      python vast/launch.py ssh --id <ID>      # prints ssh://user@host:port
+      ssh -p <port> root@<host> 'tail -30 /workspace/onstart.log'
+      ssh -p <port> root@<host> 'tail -20 /workspace/train.log'
+
+  Only treat an instance as dead if SSH also shows nothing running.
 
 ## Training scripts
 

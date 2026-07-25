@@ -255,9 +255,13 @@ Earned the hard way; they apply to every rung above.
    a bound it never approached.
 3. **A rising loss is divergence.** Do not theorise about the task until the
    learning rate is exonerated.
-4. **Measure before optimising, and before renting.** The step loop is
-   kernel-launch bound: batch 16 → 128 is free, and a faster GPU does not
-   shorten a single run.
+4. **Measure the thing you are actually claiming.** The step loop is
+   kernel-launch bound and batch 16 → 128 is free — both correct, both measured
+   on one machine. I then concluded renting would not help, which that
+   measurement could not support, and repeated it twice with confidence. A
+   rented RTX 5090 with a fast consumer CPU ran the identical job **9.7x
+   faster** (0.25 vs 2.46 s/iter). Launch issue rate is CPU-side, so the host
+   CPU *is* the bottleneck and choosing it well is the whole game.
 5. **Validate a metric on synthetic data before trusting it on real.** The
    periodicity score was checked against a hexagonal lattice (+0.90), noise
    (−0.10) and a single blob (−0.44) first, which is what makes the negative
