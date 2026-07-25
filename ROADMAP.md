@@ -61,10 +61,43 @@ seeming like a natural one: it changes the action representation, arena size,
 observation structure and loss simultaneously, so a positive result would not
 be attributable.
 
-**Prediction:** if capacity is the driver, periodicity rises monotonically with
-locations-per-unit. If 15–22 locations per unit still produces nothing, capacity
-is refuted too and the remaining suspect is structural — signed tanh/LayerNorm
-activations where grid cells are nonnegative rates.
+**Prediction (FALSIFIED 2026-07-25): periodicity does NOT rise monotonically
+with locations-per-unit. It peaks and reverses.**
+
+| arena / dims | loc per unit | mean periodicity | field score | accuracy vs ceiling |
+|---|---|---|---|---|
+| 11×11 / 120 | 1.0 | −0.390 | 0.93 | 98% |
+| 21×21 / 120 | 3.7 | −0.369 | 0.87 | 96% |
+| **21×21 / 30** | **14.7** | **−0.054** | **0.50** | **98.9%** |
+| 21×21 / 20 | 22.1 | −0.225 | 0.70 | 93% |
+
+Capacity pressure is the only hypothesis to show a real effect — the field
+score halving from 0.93 to 0.50 means position units stopped being single blobs
+and became genuinely spread out. But it peaks near 15 locations per unit and
+then regresses, and the accuracy column says why: at 22 the model is starved
+enough to drop to 93% of ceiling, and a model that is not solving the task
+cleanly has no clean structure of any kind. 4 dims per module is the structural
+floor for a 2D phase, so there is no slack left.
+
+**Revised reading: capacity moves codes AWAY from place-like without arriving
+at periodic** — a distributed middle ground. Best observed is still −0.05
+against a 0.30 threshold.
+
+**Why continuous space (Rung 4) may matter more than capacity.** On a discrete
+grid a "periodic" code barely differs from a lookup table: a module with a
+3-cell cycle takes only 3 distinct values along that axis, and since the model
+is only ever evaluated at integer positions it can treat that as an arbitrary
+3-state categorical variable and be exactly as correct. Discreteness has been
+letting the model *avoid* the property being tested. Continuous space closes
+that escape — the code must interpolate between samples, and smooth plus
+repeating is genuinely periodic. Continuous space also fixes the measurement:
+rate maps here are 11×11 or 21×21, giving 21×21 or 41×41 autocorrelograms,
+which is small for this metric; binning a continuous arena at 100×100 with many
+cycles visible is the regime gridness was designed for.
+
+Caveat from the non-monotonicity: "continuous space has effectively infinite
+positions, therefore maximum pressure" would likely land *past* the sweet spot.
+Expect failure-to-learn, not elegance, if the code is also squeezed.
 
 ## Rung 2b — hierarchical place (added 2026-07-25, user proposal)
 
