@@ -77,11 +77,12 @@ def collect(model, env, config, device, n_walks, length, window, start):
     codes = np.concatenate(codes, axis=1)  # (B, T-1, D)
     memories = np.concatenate(memories, axis=1)
     flat_locations = locations[:, 1:].reshape(-1)
-    return (
-        codes.reshape(-1, codes.shape[-1]),
-        memories.reshape(-1, memories.shape[-1]),
-        flat_locations,
-    )
+    codes = codes.reshape(-1, codes.shape[-1])
+    # The addressing key is what the retrieval objective actually constrains.
+    keys = model.to_key(
+        torch.tensor(codes, dtype=torch.float32, device=device)
+    ).cpu().numpy()
+    return codes, memories.reshape(-1, memories.shape[-1]), keys, flat_locations
 
 
 def panel(maps, scores, title, path, label, n_show=12):
@@ -132,7 +133,7 @@ def main() -> int:
     model.eval()
 
     start = topology.n_locations // 2
-    codes, memories, locations = collect(
+    codes, memories, keys, locations = collect(
         model, env, config, device, args.walks, args.length, args.window, start
     )
     coverage = len(np.unique(locations)) / topology.n_locations
@@ -148,6 +149,9 @@ def main() -> int:
     memory_maps = rate_maps(
         memories, locations, args.grid, args.grid, smooth=args.smooth
     )
+    key_maps = rate_maps(keys, locations, args.grid, args.grid, smooth=args.smooth)
+    key_periodicity = np.array([periodicity_score(m) for m in key_maps])
+    key_fields = np.array([field_score(m) for m in key_maps])
 
     periodicity = np.array([periodicity_score(m) for m in position_maps])
     fields = np.array([field_score(m) for m in memory_maps])
@@ -239,6 +243,8 @@ def main() -> int:
              "max_periodicity": float(valid.max()),
              "units_passing": int(passing),
              "n_units": int(valid.size),
+             "key_periodicity_mean": float(np.nanmean(key_periodicity)),
+             "key_field_mean": float(np.nanmean(key_fields)),
              "memory_field_mean": float(np.nanmean(fields)),
              "memory_field_max": float(np.nanmax(fields))},
             indent=2,

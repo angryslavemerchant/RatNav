@@ -85,7 +85,20 @@ class SmallCoreRecurrent(nn.Module):
         # W_e and W_x, shared by both reads. The forward read uses W_e for
         # queries/keys and W_x for values; the reverse read uses W_x for
         # queries/keys and the raw codes as values.
-        self.to_key = nn.Linear(config.position_dim, config.key_dim, bias=False)
+        # With nonlinear_key the head can convert a periodic position code into
+        # place-like keys, which frees the recurrent state to be periodic. Note
+        # this wants key_dim >= position_dim: grid codes are compact, place
+        # codes are sparse and need more units, so compressing is the wrong
+        # direction for this transform.
+        if config.nonlinear_key:
+            self.to_key = nn.Sequential(
+                nn.Linear(config.position_dim, config.key_dim),
+                nn.ReLU(),
+            )
+        else:
+            self.to_key = nn.Linear(
+                config.position_dim, config.key_dim, bias=False
+            )
         self.to_value = nn.Linear(config.n_observations, config.obs_dim, bias=False)
         self.gate = DriftGate(config.position_dim, config.hidden_dim)
         self.readout = Readout(

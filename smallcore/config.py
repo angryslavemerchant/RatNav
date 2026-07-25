@@ -34,6 +34,14 @@ class Config:
     # have to live in the same space for a dot product between them to mean
     # "am I near where I was?".
     key_dim: int = 64
+    # Nonlinear grid->place bottleneck (ROADMAP Rung 0d). A LINEAR key
+    # projection cannot turn periodic similarity into unimodal similarity --
+    # key similarity is e(x)^T W^T W e(y), a reweighted version of the same
+    # quadratic form -- so the retrieval objective's demand for a clean single
+    # peak propagates back onto the recurrent state and forces it to be
+    # place-like. Thresholding is what suppresses a periodic code's side lobes,
+    # which is exactly how grid cells become place cells biologically.
+    nonlinear_key: bool = False
     # Post-attention residual block, per the brief's one-layer/one-head start.
     model_dim: int = 64
     hidden_dim: int = 64

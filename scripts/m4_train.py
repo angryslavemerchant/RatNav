@@ -126,6 +126,13 @@ def main() -> int:
         "are close to free.",
     )
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--key-dim", type=int, default=None, dest="key_dim")
+    parser.add_argument(
+        "--nonlinear-key", action="store_true", dest="nonlinear_key",
+        help="ROADMAP Rung 0d: Linear->ReLU key projection instead of a bare "
+        "Linear, so the head can do the grid->place conversion and the "
+        "recurrent state is no longer forced to be place-like itself.",
+    )
     parser.add_argument(
         "--module-dims", type=str, default=None, dest="module_dims",
         help="comma-separated dims per module. Shrinking the position code "
@@ -172,6 +179,10 @@ def main() -> int:
         config = replace(config, batch_size=args.batch_size)
     if args.lr:
         config = replace(config, lr=args.lr)
+    if args.key_dim:
+        config = replace(config, key_dim=args.key_dim)
+    if args.nonlinear_key:
+        config = replace(config, nonlinear_key=True)
     if args.module_dims:
         dims = tuple(int(d) for d in args.module_dims.split(","))
         config = replace(config, module_dims=dims)
@@ -242,6 +253,11 @@ def main() -> int:
             f"cycle {2.0 / f:.1f} cells" for f in config.module_freqs
         )
         + f"  (arena {args.grid} cells wide)"
+    )
+    print(
+        f"key projection: {config.position_dim} -> {config.key_dim} "
+        + ("Linear->ReLU (nonlinear bottleneck)" if config.nonlinear_key
+           else "Linear")
     )
     print(
         f"M4 on {topology.name}: "
