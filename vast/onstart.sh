@@ -15,18 +15,11 @@ cd "$(dirname "$0")/.."
 export PYTHONUNBUFFERED=1
 export DEBIAN_FRONTEND=noninteractive
 
-# Caches OUTSIDE the repo: the provision command `rm -rf`s the repo on
-# every (re)start, and a stop/start on 2026-07-17 wiped the ram256 blobs
-# that lived in ./jpeg_cache. Symlink the cache dirs into /workspace so
-# restarts on the same machine keep them (the dataset bank remains the
-# real cross-machine persistence).
-for d in jpeg_cache data; do
-    mkdir -p "/workspace/${d}"
-    if [ ! -L "${d}" ]; then
-        rm -rf "${d}"
-        ln -s "/workspace/${d}" "${d}"
-    fi
-done
+# runs/ holds checkpoints and metrics. Kept outside the repo because the
+# provision command `rm -rf`s the repo on every (re)start, so a stop/start on
+# the same machine would otherwise discard a run's only local copy.
+mkdir -p /workspace/runs
+[ -L runs ] || { rm -rf runs; ln -s /workspace/runs runs; }
 
 INSTANCE_ID="${VAST_CONTAINERLABEL#C.}"
 echo "ONSTART_BEGIN instance=${INSTANCE_ID} $(date -u +%FT%TZ)"
@@ -60,8 +53,8 @@ command -v tmux >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -q
 
 # --- Benchmark-only mode: measure, report, self-destroy -------------------
 if [ -n "${BENCH_ONLY:-}" ]; then
-    "$PY" -m pip install -q numpy Pillow
-    timeout -k 60 1200 "$PY" vast/benchmark.py --out /workspace/benchmark.json
+    "$PY" -m pip install -q numpy
+    timeout -k 60 900 "$PY" vast/benchmark.py --skip download,bank,cpu --out /workspace/benchmark.json
     echo "BENCH_ONLY_DONE"
     self_destroy
     exit 0
@@ -75,7 +68,7 @@ echo "INSTALLING_DEPS"
 # KEEP_ALIVE (smoke tests) preserves the instance so the failing metrics
 # can be inspected — otherwise the destroy takes the evidence with it.
 # timeout = outer belt; benchmark.py also enforces per-test hard limits.
-if ! timeout -k 60 1200 "$PY" vast/benchmark.py --gate "${THRESHOLDS_FILE:-vast/thresholds.json}" --out /workspace/benchmark.json; then
+if ! timeout -k 60 900 "$PY" vast/benchmark.py --skip download,bank,cpu --gate "${THRESHOLDS_FILE:-vast/thresholds_smallcore.json}" --out /workspace/benchmark.json; then
     if [ -n "${KEEP_ALIVE:-}" ]; then
         echo "GATE_FAILED — KEEP_ALIVE set, instance left up for inspection"
         exit 1

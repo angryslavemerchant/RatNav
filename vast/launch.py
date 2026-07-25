@@ -1,4 +1,4 @@
-﻿"""
+"""
 vast/launch.py â€” local orchestrator for Vast.ai training runs.
 
 Runs on the local machine (Windows: use the Anaconda python). Wraps the
@@ -6,7 +6,7 @@ Runs on the local machine (Windows: use the Anaconda python). Wraps the
 live instances is kept in .vast/instances.json (gitignored).
 
 Commands:
-    search   [--profile 5090|6000|b200]              list candidate offers
+    search   [--profile cheap|5090|6000]             list candidate offers
     launch   [--offer ID] [--profile ...]            rent + provision + train
              [--train-args "..."]                    (replaces profile recipe)
     scan     [--n 3]                                 bench-only pass over N
@@ -16,12 +16,13 @@ Commands:
     logs     [--id ID] [--tail 120]                  fetch instance logs
     ssh      [--id ID]                               print ssh command
     pull     [--id ID]                               copy instance runs/ to local
-    destroy  [--id ID | --all]                       kill instance(s)
+    destroy  [--id ID | --all]                       kill instance(s); --all is
+                                                     scoped to THIS repo's runs
 
 Examples:
     python vast/launch.py scan --n 3
-    python vast/launch.py launch --train-args "--num_epochs 300 --artifact_every 25"
-    python vast/launch.py launch --smoke          # 1-epoch pipeline test, keep-alive
+    python vast/launch.py launch --train-args "--iters 8000 --wandb"
+    python vast/launch.py launch --smoke          # tiny pipeline test, keep-alive
     python vast/launch.py destroy
 """
 
@@ -42,7 +43,8 @@ STATE     = ROOT / ".vast" / "instances.json"
 BLACKLIST = ROOT / ".vast" / "blacklist.json"
 SCAN_OUT  = ROOT / "vast" / "scan_results.json"
 
-REPO_URL  = "https://github.com/angryslavemerchant/NeocoreEpisodic.git"
+REPO_URL  = "https://github.com/angryslavemerchant/RatNav.git"
+REPO_DIR  = "RatNav"
 # USER-SPECIFIED (2026-07-14): the official "PyTorch (Vast)" template
 # (template_id 2ad6d615db5927a06fef0c9cd51d77c4), replicated from the CLI
 # command the Vast console generates. @vastai-automatic-tag lets the host
@@ -61,34 +63,30 @@ TEMPLATE_ENV = (
 )
 DISK_GB   = 80
 
-# Per-class training profiles (user directive 2026-07-17): the 5090 is the
-# workhorse (overnight runs, cap $0.38/hr); 6000 Blackwell / B200 are
-# opt-in fast lanes when the user wants a same-day result. Each profile
-# carries the Vast gpu_name, price cap, and the hyperparameter fragment
-# appended to the base train args. lr follows linear scaling from the
-# proven batch-1024 / 3e-3 recipe.
+# SmallCore is a ~50k-parameter model with no dataset: it generates its own
+# walks in-process. It is kernel-launch bound on the sequential position
+# recurrence, NOT FLOP bound — measured locally, a bigger GPU buys very little.
+# Rent for THROUGHPUT (many configurations at once), not for latency on one
+# run. The cheap tier is therefore the default and the large cards exist only
+# for long multi-environment training at M4.
 GPU_PROFILES = {
-    "5090": {   # 32 GB — blobs in system RAM, never --data_device cuda
+    "cheap": {  # anything modern and inexpensive; the model is tiny
+        "gpu_name": "RTX_4090",
+        "max_dph": 0.30,
+        "train_frag": "",
+    },
+    "5090": {
         "gpu_name": "RTX_5090",
         "max_dph": 0.38,
-        "train_frag": "--batch_size 256 --lr 7.5e-4 --checkpoint_rounds 3 "
-                      "--data ram --compile_mode default",
+        "train_frag": "",
     },
-    "6000": {   # RTX PRO 6000 Blackwell WS, 96 GB — the proven recipe
+    "6000": {   # for M4 multi-environment runs, when they arrive
         "gpu_name": "RTX_PRO_6000_WS",
         "max_dph": 1.2,
-        "train_frag": "--batch_size 1024 --lr 3e-3 --checkpoint_rounds 3 "
-                      "--data ram --data_device cuda --compile_mode default",
-    },
-    "b200": {   # 180 GB — no checkpointing needed; market floor may sit
-                # above the cap, so expect to bump --max-dph explicitly
-        "gpu_name": "B200",
-        "max_dph": 8.0,
-        "train_frag": "--batch_size 1024 --lr 3e-3 --checkpoint_rounds 0 "
-                      "--data ram --data_device cuda --compile_mode default",
+        "train_frag": "",
     },
 }
-BASE_TRAIN_ARGS = "--num_epochs 300 --artifact_every 25"
+BASE_TRAIN_ARGS = "--iters 8000 --wandb"
 
 
 def resolve_profile(args):
@@ -183,10 +181,13 @@ def search_offers(gpu: str, max_dph: float, inet: int = 500, limit: int = 40):
     # No reliability filter (user: doesn't matter). cuda>=12.8 for Blackwell.
     # cpu_ram>=48: the RAM-blob loader holds the 25 GB train blob in system
     # RAM (on 32 GB cards the dataset can't live in VRAM).
+    # SmallCore has no dataset: nothing is downloaded and nothing is decoded,
+    # so the heavy network/RAM requirements from the previous project are gone.
+    # Walk generation is numpy on a few CPU cores; 16 GB is ample.
     query = (f"gpu_name={gpu} num_gpus=1 rentable=true verified=true "
              f"inet_down>={inet} disk_space>={DISK_GB} "
-             f"cpu_cores_effective>=8 cpu_ram>=48 "
-             f"cuda_max_good>=12.8 dph<={max_dph}")
+             f"cpu_cores_effective>=4 cpu_ram>=16 "
+             f"cuda_max_good>=12.4 dph<={max_dph}")
     offers = vast("search", "offers", query, "-o", "dph")
     if not isinstance(offers, list):
         return []
@@ -267,9 +268,9 @@ def build_onstart(branch: str, train_args: str, bench_only: bool,
     # template's own entrypoint.sh (portal/jupyter/workspace setup) â€” do NOT
     # replace it. Our output still reaches `vastai logs` via /proc/1/fd/1.
     provision = (
-        "cd /workspace && rm -rf NeocoreEpisodic && "
+        f"cd /workspace && rm -rf {REPO_DIR} && "
         f"git clone -b {branch} {REPO_URL} && "
-        "cd NeocoreEpisodic && "
+        f"cd {REPO_DIR} && "
         + " && ".join(exports) + " && "
         "bash vast/onstart.sh"
     )
@@ -284,10 +285,7 @@ def create_instance(offer_id: int, secrets: dict, branch: str,
                     train_args: str, bench_only: bool, keep_alive: bool,
                     purpose: str, train_script: str = None,
                     thresholds: str = None) -> int:
-    # Neocore runs log to their own wandb project (new era, new project);
-    # everything else stays in asfnetAE. upload_results.py reads the same
-    # env var, so training and the post-eval upload always agree.
-    wandb_project = "neocore" if train_script == "train_neocore.py" else "asfnetAE"
+    wandb_project = "smallcore"
     env = (f"{TEMPLATE_ENV} "
            f"-e WANDB_API_KEY={secrets['WANDB_API_KEY']} "
            f"-e HF_TOKEN={secrets['HF_TOKEN']} "
@@ -437,8 +435,7 @@ def cmd_launch(args):
     print(f"\nInstance {iid} created.")
     print(f"  watch:   python vast/launch.py logs --id {iid}")
     print(f"  destroy: python vast/launch.py destroy --id {iid}")
-    project = "neocore" if args.train_script == "train_neocore.py" else "asfnetAE"
-    print(f"  wandb:   project '{project}' - run appears once training starts")
+    print("  wandb:   project 'smallcore' - run appears once training starts")
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +605,7 @@ def cmd_pull(args):
     user, host, port = m.groups()
     cmd = ["scp", "-r", "-P", port,
            "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-           f"{user}@{host}:/workspace/NeocoreEpisodic/runs/*", str(dst)]
+           f"{user}@{host}:/workspace/{REPO_DIR}/runs/*", str(dst)]
     print(f"pulling {iid} -> {dst}")
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
@@ -618,9 +615,25 @@ def cmd_pull(args):
 
 
 def cmd_destroy(args):
-    if args.all:
-        instances = vast("show", "instances")
-        ids = [i["id"] for i in instances] if instances else []
+    if args.all or args.all_remote:
+        # SAFETY (2026-07-25): this account runs instances for OTHER projects
+        # at the same time. `--all` therefore destroys only what THIS repo
+        # launched (tracked in .vast/instances.json), never everything the API
+        # reports. `--all-remote` is the old nuclear behaviour and has to be
+        # asked for by name.
+        tracked = {r["id"] for r in load_state()}
+        instances = vast("show", "instances") or []
+        live = {i["id"] for i in instances}
+        if args.all_remote:
+            ids = sorted(live)
+            print(f"--all-remote: destroying ALL {len(ids)} instances on the "
+                  "account, including any belonging to other projects.")
+        else:
+            ids = sorted(tracked & live)
+            others = len(live) - len(ids)
+            print(f"destroying {len(ids)} instance(s) launched from this repo"
+                  + (f"; leaving {others} untracked instance(s) alone "
+                     "(use --all-remote to include them)" if others else ""))
     else:
         ids = [resolve_id(args)]
     for iid in ids:
@@ -669,10 +682,9 @@ def main():
                          "vast/thresholds_hf_light.json for HF-only "
                          "percept jobs with no Drive-bank dependency")
     sp.add_argument("--train-script", type=str, dest="train_script",
-                    default="train_neocore.py",
-                    help="Training entry point; default is the Neocore "
-                         "trainer (pass train_linear_probe.py etc. for "
-                         "other runs)")
+                    default="scripts/m2_train.py",
+                    help="Training entry point, repo-root relative "
+                         "(e.g. scripts/m1_position.py)")
     sp.add_argument("--keep-alive", action="store_true", dest="keep_alive")
     sp.add_argument("--smoke",      action="store_true",
                     help="1-epoch pipeline test with keep-alive")
@@ -705,7 +717,12 @@ def main():
 
     sp = sub.add_parser("destroy")
     sp.add_argument("--id",  type=int, default=None)
-    sp.add_argument("--all", action="store_true")
+    sp.add_argument("--all", action="store_true",
+                    help="destroy every instance THIS repo launched; other "
+                         "projects' instances on the account are left alone")
+    sp.add_argument("--all-remote", action="store_true", dest="all_remote",
+                    help="destroy every instance on the account, including "
+                         "other projects'. Implies --all.")
     sp.set_defaults(fn=cmd_destroy)
 
     sp = sub.add_parser("blacklist",
