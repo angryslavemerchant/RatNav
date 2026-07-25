@@ -70,6 +70,13 @@ with locations-per-unit. It peaks and reverses.**
 | 21×21 / 120 | 3.7 | −0.369 | 0.87 | 96% |
 | **21×21 / 30** | **14.7** | **−0.054** | **0.50** | **98.9%** |
 | 21×21 / 20 | 22.1 | −0.225 | 0.70 | 93% |
+| 31×31 / 20 | 48.0 | −0.144 | 0.60 | 98.3% |
+
+Complete sweep, five points. Peak at 14.7 locations per unit; no configuration
+put a single unit over 0.30. A second prediction failed here too: 48 loc/unit
+was expected to be *worse* than 22 on a starvation argument, and it is better
+on both metrics (−0.144 vs −0.225, 98.3% vs 93% of ceiling). Capacity per unit
+is evidently not the whole story — arena size interacts with it.
 
 Capacity pressure is the only hypothesis to show a real effect — the field
 score halving from 0.93 to 0.50 means position units stopped being single blobs
@@ -82,6 +89,16 @@ floor for a 2D phase, so there is no slack left.
 **Revised reading: capacity moves codes AWAY from place-like without arriving
 at periodic** — a distributed middle ground. Best observed is still −0.05
 against a 0.30 threshold.
+
+**The likely reason none of this worked, identified 2026-07-25.** Every
+published demonstration of grid cells emerging in a trained network supervises
+*space* directly: Banino et al. train against place-cell and head-direction
+activations, Cueva & Wei against (x, y) with activity regularisation, and
+Sorscher et al. show the *shape* of the place-cell target is what produces
+hexagons. **This model has no positional target at all** — its only objective
+is next-observation prediction, and position is learned instrumentally as a
+memory address. We have been turning knobs on a model asked a different
+question. See Rung 0c.
 
 **Why continuous space (Rung 4) may matter more than capacity.** On a discrete
 grid a "periodic" code barely differs from a lookup table: a module with a
@@ -119,6 +136,35 @@ navigator within a room and another over the graph of rooms.
 
 Sits naturally after the codebook (Rung 2), whose slots are the obvious thing
 to aggregate over.
+
+## Rung 0c — auxiliary spatial head (the M5 diagnostic that matters)
+
+Add a head off the position stream predicting **place-cell-shaped targets**
+(a population of Gaussian bumps over locations), weighted small, everything
+else unchanged. A deliberate, labelled deviation from the rule that locations
+are analysis-only, justified as a diagnostic rather than a change to the task.
+
+Raw (x, y) targets are probably NOT enough: the minimal solution is a linear
+code in two dimensions with no pressure to be periodic. The published recipe is
+place-cell-shaped targets plus nonnegative activations plus an activity cost —
+we currently have none of the three.
+
+**Prediction, and it is a real one: this will be neutral-to-harmful for task
+accuracy.** We already measured the relevant effect. M1's operators were
+trained for linear decodability (99.6% probe accuracy) and, transferred into
+the memory model, scored **76.5% against 95.8% from scratch** — worse than
+random init as memory addresses. Decoding-optimal and retrieval-optimal appear
+to conflict.
+
+Outcomes:
+- Grid cells appear → the *objective* determines the code, the architecture was
+  always capable, and everything tested in Rung 0/0b was a knob on the wrong
+  question.
+- No grid cells → the architecture genuinely cannot produce them, which is a
+  far stronger negative result than anything currently held.
+- Accuracy drops → evidence that **a memory-addressing system does not want
+  grid codes**, because what makes a code decodable is not what makes it a good
+  address. That would make M5's outcome a finding rather than a failure.
 
 ## Rung 1 — conjunctive reverse read
 
