@@ -116,7 +116,11 @@ def run_image_walk(
         width = output.logits.shape[-1]
         # Group the batch so the contrastive pool stays a fixed size however
         # large the batch grows; see patches.info_nce_grouped.
-        group = config.contrastive_group or batch
+        # Capped at the batch, because evaluation runs a handful of walks and
+        # a group larger than the batch is simply "the whole batch". The
+        # reported eval number is scored over the whole walk by
+        # _pool_accuracy regardless, so grouping does not move it.
+        group = min(config.contrastive_group or batch, batch)
         if batch % group:
             raise ValueError(
                 f"batch {batch} must divide by contrastive_group {group}"
