@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from smallcore.analysis import (  # noqa: E402
     field_score,
+    noise_peak_ratio,
     periodicity_score,
     rate_maps_coords,
     spectral_structure,
@@ -116,7 +117,7 @@ def symmetry_of(structure: dict) -> str:
     return {2: "band", 4: "square", 6: "hex"}.get(structure["n_peaks"], "none")
 
 
-def draw_rate_maps(maps, extent, path: Path, title: str) -> None:
+def draw_rate_maps(maps, extent, path: Path, title: str, threshold=None) -> None:
     n = min(len(maps), 30)
     cols = 6
     rows = -(-n // cols)
@@ -125,7 +126,7 @@ def draw_rate_maps(maps, extent, path: Path, title: str) -> None:
         if i >= n:
             ax.axis("off")
             continue
-        structure = spectral_structure(maps[i])
+        structure = spectral_structure(maps[i], min_peak_ratio=threshold)
         ax.imshow(maps[i], cmap="viridis", extent=extent, origin="lower")
         ax.set_title(
             f"u{i}  {symmetry_of(structure)}  "
@@ -196,17 +197,28 @@ def main() -> int:
     codes, positions = collect_codes(
         model, env, config, rng, args.walks, args.length, config.tbptt_window
     )
+    # Calibrate against structureless noise of the SAME shape and smoothing
+    # before classifying anything. Without this the peak counter called 7 of 30
+    # units hexagonal on 2026-07-26, and an identical null test then classified
+    # 50% of pure noise maps as periodic.
     maps, extent = rate_maps_coords(
         codes, np.arange(len(positions)), positions,
         bin_size=args.bin_size, smooth=1.5,
     )
+    threshold = noise_peak_ratio(
+        maps[0].shape, 1.5, np.random.default_rng(0), n_samples=200
+    )
+    print(f"noise null: peak ratio {threshold:.0f} is the 99th percentile of "
+          f"structureless maps of this size and smoothing")
+
     name = args.run.replace("/", "_")
     draw_rate_maps(
         maps, extent, FIGURES / f"m7_position_{name}.png",
         f"position stream, {args.run} -- {len(positions):,} samples",
+        threshold=threshold,
     )
 
-    structures = [spectral_structure(m) for m in maps]
+    structures = [spectral_structure(m, min_peak_ratio=threshold) for m in maps]
     counts: dict[str, int] = {}
     for entry in structures:
         name = symmetry_of(entry)

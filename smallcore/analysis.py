@@ -198,7 +198,9 @@ def field_score(rate_map: np.ndarray, threshold: float = 0.5) -> float:
     return float(masses.max() / max(masses.sum(), 1e-9))
 
 
-def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
+def spectral_structure(
+    rate_map: np.ndarray, pad: int = 64, min_peak_ratio: float | None = None
+) -> dict:
     """Classify a rate map by counting peaks in its 2D Fourier spectrum.
 
     The periodicity score in :func:`periodicity_score` asks one question --
@@ -224,7 +226,8 @@ def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
     centred = rate_map - rate_map.mean()
     if np.abs(centred).max() < 1e-9:
         return {"n_peaks": 0, "wavelength": float("nan"),
-                "orientation": float("nan"), "peak_power": 0.0}
+                "orientation": float("nan"), "peak_power": 0.0,
+                "peak_ratio": 0.0, "radial_cv": 1.0}
 
     # Hann window suppresses the edge discontinuity that would otherwise smear
     # power across all frequencies; zero-padding buys frequency resolution.
@@ -239,13 +242,15 @@ def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
     valid = radius > 2.5
     if not valid.any():
         return {"n_peaks": 0, "wavelength": float("nan"),
-                "orientation": float("nan"), "peak_power": 0.0}
+                "orientation": float("nan"), "peak_power": 0.0,
+                "peak_ratio": 0.0, "radial_cv": 1.0}
 
     masked = np.where(valid, spectrum, 0.0)
     peak = masked.max()
     if peak < 1e-9:
         return {"n_peaks": 0, "wavelength": float("nan"),
-                "orientation": float("nan"), "peak_power": 0.0}
+                "orientation": float("nan"), "peak_power": 0.0,
+                "peak_ratio": 0.0, "radial_cv": 1.0}
 
     # Local maxima at >= 40% of the strongest peak. Fourier spectra of real
     # signals are symmetric, so genuine structure always appears in pairs.
@@ -255,7 +260,8 @@ def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
     labels, n = ndimage.label(strong)
     if n == 0:
         return {"n_peaks": 0, "wavelength": float("nan"),
-                "orientation": float("nan"), "peak_power": 0.0}
+                "orientation": float("nan"), "peak_power": 0.0,
+                "peak_ratio": 0.0, "radial_cv": 1.0}
     centres = ndimage.center_of_mass(masked, labels, range(1, n + 1))
 
     best = max(centres, key=lambda c: masked[int(round(c[0])), int(round(c[1]))])
@@ -264,8 +270,54 @@ def spectral_structure(rate_map: np.ndarray, pad: int = 64) -> dict:
     wavelength = h / cycles_per_map if cycles_per_map > 1e-9 else float("nan")
     orientation = float(np.degrees(np.arctan2(dy, dx)) % 180.0)
 
+    # How much the strongest peak stands out from the rest of the spectrum.
+    # Counting peaks alone is NOT enough, and believing it produced a false
+    # "7 of 30 units are hexagonal" on 2026-07-26: a smoothed noise map has a
+    # lumpy spectrum too, and its lumps are local maxima above 40% of its own
+    # maximum just as readily as a lattice's are. Peak COUNT says which
+    # symmetry; peak RATIO says whether there is any signal to have a symmetry.
+    # Dimensionless, so it survives the arbitrary scale of a rate map.
+    background = float(np.median(masked[valid]))
+    peak_ratio = float(peak / background) if background > 1e-12 else float("inf")
+
+    # A real lattice puts every peak at the same spatial frequency, so the
+    # spread of peak radii is near zero; noise scatters them.
+    radii = [np.hypot(c[0] - centre, c[1] - centre) for c in centres]
+    radial_cv = float(np.std(radii) / np.mean(radii)) if np.mean(radii) > 0 else 1.0
+
+    if min_peak_ratio is not None and peak_ratio < min_peak_ratio:
+        n = 0  # indistinguishable from noise; report no symmetry at all
+
     return {"n_peaks": int(n), "wavelength": float(wavelength),
-            "orientation": orientation, "peak_power": float(peak)}
+            "orientation": orientation, "peak_power": float(peak),
+            "peak_ratio": peak_ratio, "radial_cv": radial_cv}
+
+
+def noise_peak_ratio(
+    shape: tuple[int, int],
+    smooth: float,
+    rng: np.random.Generator,
+    n_samples: int = 200,
+    quantile: float = 0.99,
+) -> float:
+    """The peak ratio that structureless noise reaches, at a given quantile.
+
+    Standing lesson 5 of the roadmap is to validate a metric on synthetic data
+    before trusting it on real, and this is that validation made part of the
+    measurement rather than a thing done once and forgotten. Rate maps are
+    smoothed, and smoothing manufactures spectral lumps; how big those lumps
+    get depends on the map size and the smoothing width, so the threshold
+    cannot be a constant. Generate the matched null and read it off.
+
+    Pass the result as ``min_peak_ratio`` to :func:`spectral_structure`.
+    """
+    ratios = []
+    for _ in range(n_samples):
+        noise = ndimage.gaussian_filter(
+            rng.standard_normal(shape), smooth, mode="nearest"
+        )
+        ratios.append(spectral_structure(noise)["peak_ratio"])
+    return float(np.quantile(ratios, quantile))
 
 
 def rate_maps_coords(
