@@ -130,6 +130,14 @@ def main() -> int:
     p.add_argument("--batch-size", type=int, default=64, dest="batch_size")
     p.add_argument("--lr", type=float, default=9.4e-4)
     p.add_argument("--obs-dim", type=int, default=32, dest="obs_dim")
+    # Walks per contrastive group. 64 reproduces every run measured so far
+    # exactly, because those ran at batch 64 and scored against the whole
+    # batch. Pinning it means a larger batch buys a lower-variance gradient on
+    # the SAME objective, instead of silently substituting a harder one: at
+    # batch 8192 the ungrouped pool would be 163,840 candidates, which is both
+    # a different task and a 163840x163840 score matrix.
+    p.add_argument("--contrastive-group", type=int, default=64,
+                   dest="contrastive_group")
     p.add_argument("--module-dims", type=str, default="6,6,6,6,6", dest="module_dims")
     # Cycles 3.0 / 4.0 / 5.3 / 7.1 / 9.4 cells, all fitting a 10-cell arena and
     # none aliasing against a one-cell step -- the two failures M5 diagnosed.
@@ -152,6 +160,7 @@ def main() -> int:
         Config(), module_dims=dims, module_freqs=freqs,
         observation_mode="patch", patch_size=args.patch, obs_dim=args.obs_dim,
         batch_size=args.batch_size, lr=args.lr, continuous=True, speed=args.speed,
+        contrastive_group=args.contrastive_group,
     )
 
     def build(generator):
@@ -191,6 +200,8 @@ def main() -> int:
            else f"{args.n_motifs} synthetic motifs") + "\n"
         f"observation: {args.patch}x{args.patch} patch, bilinear, "
         f"step {args.speed} cells\n"
+        f"batch {args.batch_size}, contrastive pool "
+        f"{args.contrastive_group * args.window} candidates\n"
         "modules: " + ", ".join(f"cycle {2.0 / f:.1f} cells" for f in freqs) + "\n"
         f"ambiguity: {ambiguity['cells_per_patch']:.1f} cells per patch above "
         f"r={ambiguity['threshold']}\n"
