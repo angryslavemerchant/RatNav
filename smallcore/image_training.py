@@ -152,7 +152,7 @@ def run_image_walk(
         reg_code = output.gated.pow(2).mean()
 
         loss = (
-            pred_loss
+            config.w_pred * pred_loss
             + config.w_pred_pos * pos_loss
             + config.w_drift * drift
             + config.l2_position_code * reg_code

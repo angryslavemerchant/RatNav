@@ -171,6 +171,9 @@ def main() -> int:
                    choices=("tanh", "relu"),
                    help="relu gives NONNEGATIVE units, which is what a firing "
                         "rate is; tanh+LayerNorm makes rate maps signed")
+    p.add_argument("--w-pred", type=float, default=1.0, dest="w_pred",
+                   help="weight on the contrastive objective; 0 with "
+                        "--w-place makes this a pure path integrator")
     p.add_argument("--w-place", type=float, default=0.0, dest="w_place",
                    help="weight on place-cell-shaped spatial supervision")
     p.add_argument("--n-place-cells", type=int, default=256, dest="n_place_cells")
@@ -198,6 +201,7 @@ def main() -> int:
         batch_size=args.batch_size, lr=args.lr, continuous=True, speed=args.speed,
         contrastive_group=args.contrastive_group,
         position_activation=args.activation, w_place=args.w_place,
+        w_pred=args.w_pred,
         n_place_cells=args.n_place_cells, place_sigma=args.place_sigma,
         l1_position_code=args.l1_code,
     )

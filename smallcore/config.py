@@ -79,6 +79,15 @@ class Config:
     # 3. An activity cost. Sparse nonnegative codes are what make a periodic
     #    solution cheaper than a place-like one.
     l1_position_code: float = 0.0
+    # Weight on the CONTRASTIVE objective itself. Set this to 0 with w_place > 0
+    # and the model becomes a pure path integrator trained only to predict
+    # place-cell targets -- which is what the published grid-cell models ARE.
+    # If grids appear there and nowhere else, the architecture was always
+    # capable and the MEMORY objective is what suppresses them, exactly as the
+    # dot-product argument predicts: a periodic code has side lobes, so a query
+    # at x also partly retrieves memories a full period away, and unimodal
+    # similarity beats periodic similarity at retrieval.
+    w_pred: float = 1.0
 
     # Continuous movement: the position stream takes a velocity vector instead
     # of an action index, and two learned generators replace the per-action

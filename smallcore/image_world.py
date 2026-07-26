@@ -336,8 +336,17 @@ def generate_trajectories(
     rng: np.random.Generator,
     speed: float = 0.5,
     turn_sigma: float = 0.6,
+    start: tuple[float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Positions and velocities only, ``(B, T, 2)`` each -- no patches.
+
+    ``start`` pins every walk to the same origin, which RATE MAPS REQUIRE and
+    training must not use. The position code carries displacement from wherever
+    a walk began, so with random starts the same location gets a different code
+    in every walk and averaging activation per location averages unrelated
+    things into mush -- blobs, whatever the model actually learned. Fixed
+    starts make displacement and location one-to-one. The operators are
+    start-agnostic, so this measures the real code rather than a special case.
 
     Split out from `generate_image_walks` because the two halves have wildly
     different costs and only one of them belongs on the CPU. Measured at batch
@@ -351,10 +360,14 @@ def generate_trajectories(
     positions = np.empty((batch_size, length, 2))
     velocities = np.zeros((batch_size, length, 2))
 
-    current = np.stack(
-        [rng.uniform(lo_x, hi_x, batch_size), rng.uniform(lo_y, hi_y, batch_size)],
-        axis=1,
-    )
+    if start is None:
+        current = np.stack(
+            [rng.uniform(lo_x, hi_x, batch_size),
+             rng.uniform(lo_y, hi_y, batch_size)],
+            axis=1,
+        )
+    else:
+        current = np.tile(np.asarray(start, dtype=float), (batch_size, 1))
     heading = rng.uniform(0, 2 * np.pi, batch_size)
 
     for step in range(length):
