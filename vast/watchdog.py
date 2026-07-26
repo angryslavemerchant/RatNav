@@ -125,19 +125,33 @@ def main() -> int:
     p.add_argument("--max-hours", type=float, default=7.0, dest="max_hours",
                    help="hard stop, whatever the instance is doing")
     p.add_argument("--poll", type=int, default=180, help="seconds between checks")
+    p.add_argument("--idle-polls", type=int, default=40, dest="idle_polls",
+                   help="exit after this many consecutive polls with nothing "
+                        "tracked, so a gap between waves does not kill it")
     p.add_argument("--grace", type=float, default=0.0,
                    help="minutes to wait after completion before destroying")
     args = p.parse_args()
 
     started = time.time()
+    idle = 0
     say(f"watchdog up: max {args.max_hours}h per instance, "
         f"polling every {args.poll}s, scoped to {STATE}")
 
     while True:
         records = tracked()
         if not records:
-            say("no tracked instances remain; watchdog exiting")
-            return 0
+            # Wait rather than exit, so a later wave of runs is still guarded.
+            # Exiting the moment the list empties meant every new wave needed
+            # the watchdog restarted by hand, and a wave launched while it was
+            # down would have had no failsafe at all.
+            idle += 1
+            if idle >= args.idle_polls:
+                say(f"no tracked instances for {idle} polls; watchdog exiting")
+                return 0
+            say(f"no tracked instances ({idle}/{args.idle_polls} idle polls)")
+            time.sleep(args.poll)
+            continue
+        idle = 0
 
         alive = live_ids()
         for record in list(records):
@@ -168,7 +182,16 @@ def main() -> int:
                 harvest(iid, label)
                 continue
 
-            log = remote(iid, "tail -40 /workspace/*.log 2>/dev/null")
+            # Explicit filenames, NOT a /workspace/*.log glob: the glob form
+            # returned rc=1 and empty output over ssh on this image, so every
+            # completed instance read as "still running" and would have been
+            # caught only by the 7-hour age limit. Verified by hand: the same
+            # ssh call with a named file returns correctly.
+            log = remote(
+                iid,
+                "grep -hE 'RUN_COMPLETE|AWAITING_PULL|GATE_FAILED|SELF_DESTROY' "
+                "/workspace/train.log /workspace/onstart.log 2>/dev/null",
+            )
             if any(marker in log for marker in DONE):
                 say(f"  {iid} ({label}): finished at {age:.1f}h")
                 if args.grace:
