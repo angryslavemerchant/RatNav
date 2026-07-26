@@ -574,5 +574,9 @@ Target **under 500k parameters** — hours on GPU, plausibly overnight on CPU. S
    landmarks are worth. **Do not treat the gate's magnitude as a figure of merit** — compare it
    against the optimal gain, which is the only thing that makes it interpretable.
    The genuine defect the comparison exposes is narrower: the gate **undershoots when path
-   integration is poor** (m8_J should weight landmarks 0.52 and manages 0.17), so it does not
-   adapt its trust across regimes the way §1 claims it will.
+   integration is poor**, so it does not adapt its trust across regimes the way §1 claims it
+   will. Reproduced on an independent pair — two arms whose path integration was weak
+   (e_PI 9.6 against 13.3 chance) both wanted ~0.51 and used ~0.15.
+   **`w_drift` is not the cause.** It had no CLI flag until 2026-07-26, so all sixteen earlier
+   arms ran at the 0.05 default and it was the obvious suspect. Switching it off entirely, a
+   clean single-variable A/B, moved the gate 0.152 → 0.156 and accuracy 17.67% → 17.43%. Inert.
