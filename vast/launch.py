@@ -708,6 +708,12 @@ def main():
 
     sp = sub.add_parser("status");  sp.set_defaults(fn=cmd_status)
 
+    # Raw JSON of every instance on the account, for the watchdog's orphan
+    # reconciliation. Deliberately unfiltered: the point is to see instances
+    # this repo created but failed to record.
+    sp = sub.add_parser("raw-instances")
+    sp.set_defaults(fn=lambda a: print(json.dumps(vast("show", "instances") or [])))
+
     sp = sub.add_parser("logs")
     sp.add_argument("--id",   type=int, default=None)
     sp.add_argument("--tail", type=int, default=120)

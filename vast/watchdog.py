@@ -36,6 +36,9 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / ".vast" / "instances.json"
 LOG = ROOT / "runs" / "watchdog.log"
 LAUNCH = ROOT / "vast" / "launch.py"
+# Present in the onstart of anything this repo launched, and absent from
+# other projects' instances -- so ownership is checked, not assumed.
+REPO_MARKER = "RatNav.git"
 
 # Markers written by run_training.sh / onstart.sh.
 # RUN_FAILED matters as much as RUN_COMPLETE: run_training.sh deliberately
@@ -82,6 +85,47 @@ def tracked() -> list[dict]:
         return json.loads(STATE.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return []
+
+
+def adopt_orphans() -> None:
+    """Track instances this repo launched but never recorded.
+
+    `create_instance` writes to .vast/instances.json only AFTER validating the
+    API response, so an instance the server really created but whose response
+    did not parse as success exists, bills, and is invisible to everything --
+    the launch reports failure and the watchdog, scoped to tracked ids, never
+    looks at it. That happened: a wedged A4000 sat at $0.141/hr with no record
+    of it anywhere, and was noticed only because a human counted the instances.
+
+    The onstart command carries the repo URL, so ownership is checkable rather
+    than guessed. Anything matching gets adopted and is then subject to the
+    same completion and age limits as everything else. Instances belonging to
+    other projects do not match and are left alone.
+    """
+    known = {r["id"] for r in tracked()}
+    code, out = run([python(), str(LAUNCH), "raw-instances"], timeout=60)
+    try:
+        instances = json.loads(out) if code == 0 else []
+    except json.JSONDecodeError:
+        return
+    adopted = []
+    for instance in instances:
+        iid = instance.get("id")
+        if iid in known:
+            continue
+        if REPO_MARKER not in (instance.get("onstart") or ""):
+            continue
+        say(f"  ADOPTING ORPHAN {iid}: launched by this repo but untracked "
+            f"(${instance.get('dph_total', 0):.3f}/hr)")
+        adopted.append({
+            "id": iid, "offer": None, "purpose": "orphan",
+            "branch": "?", "train_args": "?",
+            "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+    if adopted:
+        STATE.write_text(
+            json.dumps(tracked() + adopted, indent=2), encoding="utf-8"
+        )
 
 
 def live_ids() -> set[int]:
@@ -148,6 +192,7 @@ def main() -> int:
         f"polling every {args.poll}s, scoped to {STATE}")
 
     while True:
+        adopt_orphans()
         records = tracked()
         if not records:
             # Wait rather than exit, so a later wave of runs is still guarded.
@@ -163,6 +208,7 @@ def main() -> int:
             continue
         idle = 0
 
+        adopt_orphans()
         alive = live_ids()
         for record in list(records):
             iid, label = record["id"], record.get("purpose", "?")
