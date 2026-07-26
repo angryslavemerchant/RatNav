@@ -28,6 +28,19 @@ class Config:
     # Observations are compressed before entering memory as values: the memory
     # returns *contents*, and 45 one-hot dims is a wasteful way to carry them.
     obs_dim: int = 10
+    # "symbol" -- a one-hot from a fixed vocabulary, projected linearly.
+    # "patch"  -- a patch_size x patch_size window of an image, encoded by a
+    # small convnet and scored contrastively (ROADMAP Rung 5). The recurrent
+    # loop is identical either way; only what an observation *is* changes.
+    observation_mode: str = "symbol"
+    patch_size: int = 8
+    # Softmax temperature for the contrastive objective, on cosine similarity.
+    temperature: float = 0.07
+    # Walks per contrastive group; 0 means "the whole batch". Set this whenever
+    # the batch is scaled up, so the candidate pool -- and therefore the
+    # difficulty of the task and the scale of the loss -- stays fixed and a
+    # large-batch run remains comparable to the runs already measured.
+    contrastive_group: int = 0
 
     # --- memory stream ----------------------------------------------------- #
     # Queries and keys are both position, through one tied projection: they
@@ -84,6 +97,18 @@ class Config:
     def position_dim(self) -> int:
         return sum(self.module_dims)
 
+    @property
+    def readout_dim(self) -> int:
+        """Width of the prediction head's output.
+
+        A distribution over the vocabulary in the symbol world; a point in the
+        observation embedding space, compared against encoded candidates, in the
+        patch world.
+        """
+        return self.obs_dim if self.observation_mode == "patch" else self.n_observations
+
     def __post_init__(self) -> None:
         if len(self.module_dims) != len(self.module_freqs):
             raise ValueError("module_dims and module_freqs must align")
+        if self.observation_mode not in ("symbol", "patch"):
+            raise ValueError("observation_mode must be 'symbol' or 'patch'")

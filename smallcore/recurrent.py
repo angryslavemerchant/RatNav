@@ -42,6 +42,7 @@ from torch import nn
 from smallcore.config import Config
 from smallcore.continuous import ContinuousPositionEncoder
 from smallcore.drift import DriftGate, attend
+from smallcore.patches import PatchEncoder
 from smallcore.position import PositionEncoder
 from smallcore.readout import Readout
 
@@ -66,12 +67,17 @@ class RecurrentState:
 
 @dataclass
 class ChunkOutput:
-    logits: torch.Tensor  # (B, L, V)
-    logits_position: torch.Tensor  # (B, L, V)
+    # In the symbol world these two are logits over the vocabulary. In the
+    # patch world they are predicted *embeddings*, scored against ``values``.
+    logits: torch.Tensor  # (B, L, out_dim)
+    logits_position: torch.Tensor  # (B, L, out_dim)
     integrated: torch.Tensor  # (B, L, D) pre-gate codes
     gated: torch.Tensor  # (B, L, D) post-gate codes
     gate: torch.Tensor  # (B, L, D) gate values, for analysis
     retrieved: torch.Tensor  # (B, L, obs_dim) memory-stream output, for M5
+    # Encoded observations, i.e. what was written into memory as values. The
+    # contrastive target, and free here -- the loop already computed them.
+    values: torch.Tensor  # (B, L, obs_dim)
 
 
 class SmallCoreRecurrent(nn.Module):
@@ -108,7 +114,20 @@ class SmallCoreRecurrent(nn.Module):
             self.to_key = nn.Linear(
                 config.position_dim, config.key_dim, bias=False
             )
-        self.to_value = nn.Linear(config.n_observations, config.obs_dim, bias=False)
+        # W_x. A lookup table off a one-hot in the symbol world, a convnet over
+        # pixels in the patch world -- and in both cases it serves twice, as the
+        # forward read's values and the reverse read's keys, so nothing else in
+        # the loop needs to know which world it is in.
+        if config.observation_mode == "patch":
+            self.obs_shape: tuple[int, ...] = (config.patch_size, config.patch_size)
+            self.to_value: nn.Module = PatchEncoder(
+                config.patch_size, config.obs_dim
+            )
+        else:
+            self.obs_shape = (config.n_observations,)
+            self.to_value = nn.Linear(
+                config.n_observations, config.obs_dim, bias=False
+            )
         self.gate = DriftGate(config.position_dim, config.hidden_dim)
         self.readout = Readout(
             position_dim=config.position_dim,
@@ -116,6 +135,7 @@ class SmallCoreRecurrent(nn.Module):
             n_observations=config.n_observations,
             model_dim=config.model_dim,
             hidden_dim=config.hidden_dim,
+            out_dim=config.readout_dim,
         )
 
     def initial_state(
@@ -123,7 +143,7 @@ class SmallCoreRecurrent(nn.Module):
     ) -> RecurrentState:
         code = self.position.initial_state(batch_size)
         empty_codes = code.new_zeros(batch_size, 0, self.config.position_dim)
-        empty_obs = code.new_zeros(batch_size, 0, self.config.n_observations)
+        empty_obs = code.new_zeros(batch_size, 0, *self.obs_shape)
         return RecurrentState(code, empty_codes, empty_obs)
 
     def observe(
@@ -153,19 +173,25 @@ class SmallCoreRecurrent(nn.Module):
             state: Carried state; its ``past_*`` blocks should already be
                 detached by the caller.
             actions: ``(B, L)`` action leading *into* each step of the chunk.
-            observations: ``(B, L, V)`` one-hot observation *at* each step.
+            observations: ``(B, L, *obs_shape)`` observation *at* each step --
+                a one-hot row, or a patch of pixels.
             use_gate: When False, the reverse read is skipped entirely and the
                 position stays purely path-integrated. This has to be handled
                 *inside* the loop -- suppressing the correction only between
                 windows leaves it running for every step within one, which
                 ablates almost nothing.
         """
-        batch, length, _ = observations.shape
+        batch, length = observations.shape[:2]
 
         # Project the detached block once: it is fixed for the whole window.
         past_keys = self.to_key(state.past_codes)
+        # W_x serves twice -- forward-read values and reverse-read keys -- and
+        # these were two separate calls on the same tensor, so the projection
+        # ran twice per window and half of it was thrown away. Free in the
+        # symbol world, where W_x is one small matmul; not free in the patch
+        # world, where it is a convnet over every patch in the cache.
         past_values = self.to_value(state.past_obs)
-        past_obs_keys = self.to_value(state.past_obs)  # reverse read keys
+        past_obs_keys = past_values  # reverse read keys: the same projection
         past_code_values = state.past_codes  # reverse read values
 
         code = state.code
@@ -235,6 +261,7 @@ class SmallCoreRecurrent(nn.Module):
             gated=torch.stack(gated, dim=1),
             gate=torch.stack(gates, dim=1),
             retrieved=torch.stack(retrievals, dim=1),
+            values=recent_obs_proj,
         )
         new_state = RecurrentState(
             code,

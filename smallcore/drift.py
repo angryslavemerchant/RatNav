@@ -63,6 +63,20 @@ def attend(
     Returns:
         ``(B, d_v)``. All-zero where the memory is empty.
     """
+    # Concatenating the values copies the whole cache on every step, which is
+    # quadratic in walk length and looks like the obvious thing to remove: score
+    # each block separately, then sum two weighted matmuls instead of one. That
+    # was tried and **measured slower** in this regime, because the loop is
+    # launch-bound rather than bandwidth-bound and the split costs an extra
+    # kernel per attention per step. Interleaved, at batch 64:
+    #
+    #   cache entries    100    300   1000   3000
+    #   concatenate     461us  418us  438us 1103us
+    #   split            567us  562us  558us  678us
+    #
+    # The crossover is near 1000 entries. Walks here are 100-300 steps, so
+    # concatenating wins; persistence across episodes (ROADMAP Rung 3) would
+    # push the cache into the thousands and flip this. Revisit it then, not now.
     scale = beta / math.sqrt(query.shape[-1])
     scores, values = [], []
     if past_keys is not None and past_keys.shape[1] > 0:
