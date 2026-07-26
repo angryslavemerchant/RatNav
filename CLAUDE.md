@@ -545,14 +545,34 @@ Target **under 500k parameters** — hours on GPU, plausibly overnight on CPU. S
    world (M7) patch correlation fell from 0.99 to below 0.5 within **0.16 cells** and reached
    zero by 0.25, while the agent stepped **0.5 cells** — so consecutive observations were
    statistically independent and the reverse read had no signal to correct drift with. Every
-   M7/M8 run was affected. The tell was visible the whole time and was misread: the drift gate
-   sat at 0.12–0.27 across every configuration, near its 0.12 initialisation, which was
-   recorded as "corrections are small nudges" when it actually meant *landmarks were not worth
-   trusting, and the model had correctly learned so.*
+   M7/M8 run was affected.
+   **Widening the world does NOT fix it and makes things worse** — at `motif_cells=4` accuracy
+   fell 17.7% → 10.2% and the gate 0.152 → 0.109 — because ambiguity doubles (35 → 72 cells
+   per patch) and a landmark fix returns a blend over everything sharing the observation. The
+   measurement is real; treating it as the blocker was wrong.
    Raising `motif_sigma` does not fix it — measured at 4/8/16/32/64, correlation length stays
    at 0.06–0.18 cells — because motifs are drawn **independently per tile**, so there is a
    discontinuity at every cell boundary however smooth each side is. The cap is the tile, not
    the filter. `motif_cells` widens the tile: at 4 cells with sigma 16 the correlation length
    is 0.62 cells, past the step for the first time, at the cost of ambiguity rising from 35 to
-   72 cells per patch. **A gate that never moves off its initialisation is evidence about the
-   world, not a property of the mechanism.**
+   72 cells per patch.
+8. **The small drift gate is CORRECT, and three of us in a row have read it as a symptom.**
+   `scripts/m9_reverse_read.py` decodes position from what the gate is actually shown. The
+   reverse read carries real position information — about half the chance error — but it is
+   **1.5–1.9x noisier than path integration**, and the optimal weight on the noisier of two
+   estimates is `σ²_PI / (σ²_PI + σ²_ret)`. In the best-localised arms the learned gate lands
+   within ~10% of it:
+
+   | arm | e_PI | e_ret | optimal | learned |
+   |---|---|---|---|---|
+   | m8_B | 1.38 | 2.66 | 0.211 | 0.196 |
+   | m8_C | 1.37 | 2.40 | 0.246 | 0.189 |
+   | m8_J | 6.69 | 6.47 | 0.517 | 0.171 |
+
+   So a gate of ~0.2 is not suppression by `w_drift` (removing it changes nothing), not
+   starvation by the world, and not a bad encoder. It is a *measurement* of how much the
+   landmarks are worth. **Do not treat the gate's magnitude as a figure of merit** — compare it
+   against the optimal gain, which is the only thing that makes it interpretable.
+   The genuine defect the comparison exposes is narrower: the gate **undershoots when path
+   integration is poor** (m8_J should weight landmarks 0.52 and manages 0.17), so it does not
+   adapt its trust across regimes the way §1 claims it will.

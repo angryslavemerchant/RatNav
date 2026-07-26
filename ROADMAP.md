@@ -29,12 +29,27 @@ information at all, which specifically cripples the reverse read." The patch
 world was built to solve that and *did not*, because nobody measured whether it
 had. Building the intended mechanism is not evidence that the mechanism works.
 
-The evidence was also already collected and written up backwards. The drift gate
-sat at 0.05–0.34 across fourteen arms, near its 0.12 initialisation, and
-CLAUDE.md records this as "corrections are small continuous nudges, never
-teleports, which is the right response." It is not. **A gate that never leaves
-its initialisation is evidence about the world, not a property of the
-mechanism.**
+**Then the fix failed, and the failure is the useful part.** Widening the world
+made *both* metrics worse — accuracy 17.67% → 10.15%, gate 0.152 → 0.109 —
+because ambiguity doubled (35 → 72 cells per patch) and a landmark fix returns a
+blend over every location sharing the observation, so each fix gets *less*
+precise even as consecutive views become more correlated. I had called that rise
+"the direction the architecture wants". It is not; there is an optimum and
+`motif_cells=4` is past it.
+
+**And the thing I was chasing was never broken.** The small drift gate is
+correct. `scripts/m9_reverse_read.py` decodes position from what the gate is
+shown: the reverse read carries real information (about half the chance error)
+but is **1.5–1.9x noisier than path integration**, and in the best-localised
+arms the learned gate matches the optimal blend weight to within ~10% (m8_B:
+optimal 0.211, learned 0.196). A gate of 0.2 is a *measurement of how much
+landmarks are worth*, not a symptom. Removing `w_drift` entirely changes nothing.
+
+**The real defect, which is much narrower:** the gate undershoots when path
+integration is poor — m8_J should weight landmarks 0.52 and manages 0.17. It
+does not adapt its trust across regimes, which is exactly the property the
+architecture's own description promises. That, not the gate's magnitude, is
+what to work on.
 
 **Cause and fix.** `motif_sigma` cannot fix it (measured at 4/8/16/32/64:
 correlation length stays 0.06–0.18 cells) because motifs are drawn
