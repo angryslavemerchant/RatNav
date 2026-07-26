@@ -42,7 +42,7 @@ from torch import nn
 from smallcore.config import Config
 from smallcore.continuous import ContinuousPositionEncoder
 from smallcore.drift import DriftGate, attend
-from smallcore.patches import PatchEncoder
+from smallcore.patches import LinearPatchEncoder, PatchEncoder
 from smallcore.place import PlaceHead
 from smallcore.position import PositionEncoder
 from smallcore.readout import Readout
@@ -122,8 +122,10 @@ class SmallCoreRecurrent(nn.Module):
         # the loop needs to know which world it is in.
         if config.observation_mode == "patch":
             self.obs_shape: tuple[int, ...] = (config.patch_size, config.patch_size)
-            self.to_value: nn.Module = PatchEncoder(
-                config.patch_size, config.obs_dim
+            self.to_value: nn.Module = (
+                LinearPatchEncoder(config.patch_size, config.obs_dim)
+                if config.patch_encoder == "linear"
+                else PatchEncoder(config.patch_size, config.obs_dim)
             )
         else:
             self.obs_shape = (config.n_observations,)

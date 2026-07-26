@@ -34,6 +34,11 @@ class Config:
     # loop is identical either way; only what an observation *is* changes.
     observation_mode: str = "symbol"
     patch_size: int = 8
+    # "conv" -- two strided convolutions then a projection.
+    # "linear" -- the flattened patch through one matrix, ViT-style. See
+    # patches.LinearPatchEncoder for why the convolution may be the wrong
+    # inductive bias here.
+    patch_encoder: str = "conv"
     # Softmax temperature for the contrastive objective, on cosine similarity.
     temperature: float = 0.07
     # Walks per contrastive group; 0 means "the whole batch". Set this whenever

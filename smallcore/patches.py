@@ -65,6 +65,46 @@ class PatchEncoder(nn.Module):
         return self.norm(self.project(hidden)).reshape(*lead, self.obs_dim)
 
 
+class LinearPatchEncoder(nn.Module):
+    """The whole patch as one vector, projected once. No convolution.
+
+    Worth testing against `PatchEncoder` because a convnet may be the wrong
+    inductive bias for this particular job, for two reasons.
+
+    **It warps distance.** The reverse read is only useful if observation
+    similarity carries *how far apart* two views are, and the correction gate
+    has sat at 0.15-0.27 for every run so far, which is close to its 0.12
+    initialisation. A linear map preserves pixel-space geometry up to that map,
+    so two patches a fraction of a cell apart stay close in embedding space. A
+    stack of convolutions and GELUs is free to fold that geometry however the
+    contrastive loss finds convenient.
+
+    **It is its own target.** The encoder produces the embeddings the model is
+    trained to predict, so extra capacity there is extra freedom to co-adapt
+    with the predictor rather than to describe the patch. A one-matrix encoder
+    has far less room to make the task easy in ways that do not correspond to
+    seeing better.
+
+    Weight sharing is also a strange thing to want here: convolution is built
+    to answer "what is present" while being relaxed about "where", and this
+    task is precisely about where.
+    """
+
+    def __init__(self, patch: int, obs_dim: int) -> None:
+        super().__init__()
+        self.patch = patch
+        self.obs_dim = obs_dim
+        self.project = nn.Linear(patch * patch, obs_dim)
+        self.norm = nn.LayerNorm(obs_dim)
+
+    def forward(self, patches: torch.Tensor) -> torch.Tensor:
+        lead = patches.shape[:-2]
+        flat = patches.reshape(-1, self.patch * self.patch)
+        if flat.shape[0] == 0:
+            return patches.new_zeros(*lead, self.obs_dim)
+        return self.norm(self.project(flat)).reshape(*lead, self.obs_dim)
+
+
 def info_nce(
     predicted: torch.Tensor,
     target: torch.Tensor,

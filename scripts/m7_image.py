@@ -180,6 +180,10 @@ def main() -> int:
     p.add_argument("--place-sigma", type=float, default=0.5, dest="place_sigma")
     p.add_argument("--l1-code", type=float, default=0.0, dest="l1_code",
                    help="activity cost on the position code")
+    p.add_argument("--encoder", type=str, default="conv",
+                   choices=("conv", "linear"),
+                   help="linear = flattened patch through one matrix, which "
+                        "preserves pixel-space distance the reverse read needs")
     p.add_argument("--analyse", action="store_true",
                    help="after training, score the position code for periodic "
                         "structure against a matched noise null")
@@ -201,7 +205,7 @@ def main() -> int:
         batch_size=args.batch_size, lr=args.lr, continuous=True, speed=args.speed,
         contrastive_group=args.contrastive_group,
         position_activation=args.activation, w_place=args.w_place,
-        w_pred=args.w_pred,
+        w_pred=args.w_pred, patch_encoder=args.encoder,
         n_place_cells=args.n_place_cells, place_sigma=args.place_sigma,
         l1_position_code=args.l1_code,
     )
