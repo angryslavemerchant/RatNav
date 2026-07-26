@@ -53,8 +53,10 @@ from smallcore.image_training import (
     to_tensors,
 )
 from smallcore.image_world import (
+    TorchPatchSampler,
     crop_environments,
     generate_image_walks,
+    generate_trajectories,
     load_backdrop,
     make_image_environment,
     measure_ambiguity,
@@ -203,6 +205,13 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     (RUNS_DIR / "LATEST").write_text(str(run_dir), encoding="utf-8")
 
+    # One sampler per training environment, each holding its backdrop on the
+    # device. Verified against the numpy path rather than assumed equal.
+    samplers = [TorchPatchSampler(e, device) for e in pool]
+    drift = max(s.verify(np.random.default_rng(1234)) for s in samplers)
+    if drift > 1e-3:
+        raise RuntimeError(f"GPU patch sampler disagrees with observe: {drift:.2e}")
+
     model = SmallCoreRecurrent(0, config, seed=args.seed).to(device)
     if args.compile_model:
         model.run_chunk = torch.compile(model.run_chunk, dynamic=True)
@@ -222,6 +231,7 @@ def main() -> int:
         f"r={ambiguity['threshold']}\n"
         f"parameters: {n_params:,} ({encoder_params:,} in the patch encoder)  "
         f"device {device}  run {run_dir}\n"
+        f"gpu patch sampler agrees with numpy to {drift:.1e}\n"
     )
 
     run = None
@@ -244,12 +254,21 @@ def main() -> int:
         for g in optimiser.param_groups:
             g["lr"] = lr
 
-        env = pool[int(rng.integers(len(pool)))]
+        index = int(rng.integers(len(pool)))
+        env = pool[index]
         length = int(rng.integers(args.walk_min, args.walk_max + 1))
-        walks = generate_image_walks(
+        # Trajectory on the CPU (0.08 s at batch 2048), patches on the GPU.
+        # Extracting them in numpy instead cost 1.95 s -- 72% of an entire
+        # iteration -- and shipped 420 MB across PCIe to do it.
+        positions, all_velocities = generate_trajectories(
             env, config.batch_size, length, rng, args.speed
         )
-        velocities, patches = to_tensors(walks, device)
+        velocities = torch.as_tensor(
+            all_velocities[:, :-1], dtype=torch.float32, device=device
+        )
+        patches = samplers[index](
+            torch.as_tensor(positions, dtype=torch.float32, device=device)
+        )
 
         optimiser.zero_grad()
         stats = run_image_walk(
