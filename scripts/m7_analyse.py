@@ -104,6 +104,18 @@ def collect_codes(model, env, config, rng, n_walks, length, window):
     return codes.reshape(-1, codes.shape[-1]), positions.reshape(-1, 2)
 
 
+def symmetry_of(structure: dict) -> str:
+    """Name the lattice from the Fourier peak count.
+
+    `spectral_structure` returns the count, not a label, and the count is the
+    whole point: 2 peaks is a 1-D band, 4 a square lattice, 6 hexagonal. The
+    gridness score cannot tell a band from noise -- both answer "not
+    hexagonal" -- which is how six hypotheses were refuted against a metric
+    blind to the structure that was there.
+    """
+    return {2: "band", 4: "square", 6: "hex"}.get(structure["n_peaks"], "none")
+
+
 def draw_rate_maps(maps, extent, path: Path, title: str) -> None:
     n = min(len(maps), 30)
     cols = 6
@@ -116,7 +128,7 @@ def draw_rate_maps(maps, extent, path: Path, title: str) -> None:
         structure = spectral_structure(maps[i])
         ax.imshow(maps[i], cmap="viridis", extent=extent, origin="lower")
         ax.set_title(
-            f"u{i}  {structure['symmetry']}  "
+            f"u{i}  {symmetry_of(structure)}  "
             f"g={periodicity_score(maps[i]):+.2f}",
             fontsize=7,
         )
@@ -196,8 +208,9 @@ def main() -> int:
 
     structures = [spectral_structure(m) for m in maps]
     counts: dict[str, int] = {}
-    for s in structures:
-        counts[s["symmetry"]] = counts.get(s["symmetry"], 0) + 1
+    for entry in structures:
+        name = symmetry_of(entry)
+        counts[name] = counts.get(name, 0) + 1
     periodic = sum(v for k, v in counts.items() if k != "none")
     print(
         f"\nposition units: {len(maps)}  "
