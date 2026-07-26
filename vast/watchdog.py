@@ -50,7 +50,11 @@ def say(message: str) -> None:
         handle.write(line + "\n")
 
 
-def run(args: list[str], timeout: int = 300) -> tuple[int, str]:
+def run(args: list[str], timeout: int = 60) -> tuple[int, str]:
+    # Short by default. A poll cycle that blocks on a slow API call is a
+    # watchdog that is not watching: with a 300s default and four instances,
+    # one cycle could stall for ~28 minutes and overshoot the age limit it
+    # exists to enforce. Observed stalling for 18 minutes before this changed.
     try:
         proc = subprocess.run(
             args, capture_output=True, text=True, timeout=timeout,
@@ -87,7 +91,7 @@ def ssh_target(iid: int) -> tuple[str, str, str] | None:
     return match.groups() if match else None
 
 
-def remote(iid: int, command: str, timeout: int = 120) -> str:
+def remote(iid: int, command: str, timeout: int = 45) -> str:
     target = ssh_target(iid)
     if target is None:
         return ""
