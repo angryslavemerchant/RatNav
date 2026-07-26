@@ -38,7 +38,13 @@ LOG = ROOT / "runs" / "watchdog.log"
 LAUNCH = ROOT / "vast" / "launch.py"
 
 # Markers written by run_training.sh / onstart.sh.
-DONE = ("RUN_COMPLETE", "AWAITING_PULL", "GATE_FAILED", "SELF_DESTROY")
+# RUN_FAILED matters as much as RUN_COMPLETE: run_training.sh deliberately
+# leaves a failed instance alive "for inspection", so omitting it meant a run
+# that exited nonzero billed on until the age limit. Caught when an arm with
+# the contrastive objective switched off correctly reported NOT PASSED and
+# exited 1 -- a successful experiment that looked like a failure to the shell.
+DONE = ("RUN_COMPLETE", "AWAITING_PULL", "GATE_FAILED", "SELF_DESTROY",
+        "RUN_FAILED", "TRAIN_EXIT status=1")
 
 
 def say(message: str) -> None:
@@ -193,7 +199,7 @@ def main() -> int:
             # ssh call with a named file returns correctly.
             log = remote(
                 iid,
-                "grep -hE 'RUN_COMPLETE|AWAITING_PULL|GATE_FAILED|SELF_DESTROY' "
+                "grep -hE 'RUN_COMPLETE|AWAITING_PULL|GATE_FAILED|SELF_DESTROY|RUN_FAILED|TRAIN_EXIT' "
                 "/workspace/train.log /workspace/onstart.log 2>/dev/null",
             )
             if any(marker in log for marker in DONE):

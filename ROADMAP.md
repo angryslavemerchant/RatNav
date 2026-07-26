@@ -2,6 +2,52 @@
 
 ## START HERE — the next thing to build
 
+### M7 is DONE and M8 (grid cells) is half-done — read this first (2026-07-26)
+
+**M7, the continuous image walker: PASSED at 51.75%** on images never trained
+on, against 0.61% for appearance-addressed retrieval, 0.04% chance, and 4.65%
+for retrieval *with perfect localisation*. Beating that last number 11x is the
+result: the model is not copying a remembered patch, it interpolates several
+into a view it has never had from that spot. `scripts/m7_image.py`.
+
+**M8, grid cells: bands yes, hexagons no.** Eight arms overnight. The recipe
+that works is **nonnegative units (`--activation relu`) + place-cell targets
+(`--w-place`) + activity cost (`--l1-code`) + an arena big enough to resolve
+several periods (`--grid 16`)**. See `figures/m8_control_vs_best.png`: the
+control gives blobs and gradients, the recipe gives unmistakable bands, and in
+arm F the orientations are *module-consistent* (module 1 all six units at 90
+degrees, module 0 five of six at 0) where the control's are scattered.
+
+No hexagons in any arm. Consistent with M5: a square world privileges 0 and 90
+degrees, and hexagons need three bands interfering at 60.
+
+**The decisive negative:** arm H switched the memory objective OFF entirely
+(`--w-pred 0`), making a pure path integrator trained only on place targets --
+which is what the published grid-cell models ARE. It produced no more structure
+than the rest. So the memory objective is NOT what suppresses hexagons, and the
+dot-product side-lobe argument does not explain their absence.
+
+**What to do next, in order:**
+
+1. **A much larger arena.** Every automated count tonight is unreliable and the
+   reason is measurable: the learned wavelength came out at ~5.3 cells in every
+   module, so only ~3 periods fit the arena. Three periods is too few for any
+   spectral method to separate a band from a blob or a gradient -- four
+   different discriminators were tried and none did. Go to 30+ cells so 6-10
+   periods are visible, and the classifier stops being the bottleneck.
+2. **Hex topology or a hex-symmetric world**, since bands now form reliably and
+   the only thing missing for hexagons is a world whose symmetry rewards 60
+   degrees.
+3. Then resume the target below (adapter, walls, policy).
+
+**Do not trust `--analyse`'s printed verdict.** It gates on `field_score < 0.5`,
+which rejects genuine bands: a two-stripe unit can put over half its mass in one
+component. `scripts/m8_grid_report.py` re-scores on FIXED-START walks (required
+-- random starts average unrelated codes into mush) but inherits the same gate.
+**Open `rate_maps_fixed_start.npy` and look.**
+
+
+
 **Rung 5, the patch observation model.** Promoted above everything else,
 because M6 showed continuous movement and continuous observation are ONE change
 rather than two: continuous movement paired with the current piecewise-constant
