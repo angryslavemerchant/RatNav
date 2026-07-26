@@ -148,6 +148,22 @@ class SmallCoreRecurrent(nn.Module):
             self.to_value = nn.Linear(
                 config.n_observations, config.obs_dim, bias=False
             )
+        # One flag, consulted by every site that touches the cache -- the
+        # allocation, the write and the read must agree on whether it holds
+        # patches or embeddings, and flipping only the read raises a shape
+        # error deep inside `attend` rather than anywhere informative.
+        #
+        # Caching is a semantic change with a LEARNED encoder: re-projection
+        # feeds gradient back through re-encoding the whole history, and
+        # measured gradients differ by ~1.7e3, so it stays behind the flag
+        # there. With a FROZEN encoder there are no weights for that path to
+        # reach and it is exact -- verified at 4.8e-08 relative in float32 and
+        # 8.5e-17 in float64, shrinking to machine epsilon with precision,
+        # which is accumulation noise and not a difference. Free, so taken.
+        self._frozen_encoder = isinstance(self.to_value, FixedFeatureEncoder)
+        self._cache_values = (
+            config.cache_projected_values or self._frozen_encoder
+        )
         # Optional spatial supervision (ROADMAP Rung 0c). Linear by design --
         # a deep head would relieve the recurrent state of the pressure that is
         # the whole point of the experiment.
@@ -171,7 +187,7 @@ class SmallCoreRecurrent(nn.Module):
         code = self.position.initial_state(batch_size)
         empty_codes = code.new_zeros(batch_size, 0, self.config.position_dim)
         shape = (
-            (self.config.obs_dim,) if self.config.cache_projected_values
+            (self.config.obs_dim,) if self._cache_values
             else self.obs_shape
         )
         empty_obs = code.new_zeros(batch_size, 0, *shape)
@@ -194,7 +210,7 @@ class SmallCoreRecurrent(nn.Module):
 
     def _store(self, observation: torch.Tensor) -> torch.Tensor:
         """What goes into the cache: the observation, or its embedding."""
-        if self.config.cache_projected_values:
+        if self._cache_values:
             return self.to_value(observation).detach()
         return observation
 
@@ -233,7 +249,7 @@ class SmallCoreRecurrent(nn.Module):
         # which costs 45% of a conv iteration and feeds the encoder gradient
         # from the whole past. See config.cache_projected_values.
         past_values = (
-            state.past_obs if self.config.cache_projected_values
+            state.past_obs if self._cache_values
             else self.to_value(state.past_obs)
         )
         past_obs_keys = past_values  # reverse read keys: the same projection
@@ -313,7 +329,7 @@ class SmallCoreRecurrent(nn.Module):
             torch.cat([state.past_codes, recent_codes], dim=1),
             torch.cat(
                 [state.past_obs,
-                 recent_obs_proj.detach() if self.config.cache_projected_values
+                 recent_obs_proj.detach() if self._cache_values
                  else torch.stack(recent_obs, dim=1)],
                 dim=1,
             ),
