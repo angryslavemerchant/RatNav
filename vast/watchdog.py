@@ -24,6 +24,7 @@ watchdog that reasons about "all instances" would eventually eat one.
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import re
 import subprocess
@@ -148,12 +149,17 @@ def main() -> int:
                 continue
 
             created = record.get("created", "")
-            age = float("nan")
             try:
-                age = (time.time() - time.mktime(
+                # calendar.timegm, NOT time.mktime: mktime reads the struct as
+                # LOCAL time, and `created` is UTC, so it lands one UTC offset
+                # out. Measured here as -9.0h elapsed for an instance a minute
+                # old -- which would have meant the age limit never fired at
+                # all, silently disabling the one guarantee this script makes.
+                age = (time.time() - calendar.timegm(
                     time.strptime(created, "%Y-%m-%dT%H:%M:%SZ"))) / 3600.0
-                age -= time.timezone / 3600.0  # created is UTC
             except (ValueError, TypeError):
+                age = (time.time() - started) / 3600.0
+            if age < 0:  # unparseable or clock skew: fall back to our own clock
                 age = (time.time() - started) / 3600.0
 
             if age > args.max_hours:
