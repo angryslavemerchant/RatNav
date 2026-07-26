@@ -42,6 +42,12 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from smallcore.analysis import (
+    field_score,
+    noise_peak_ratio,
+    rate_maps_coords,
+    spectral_structure,
+)
 from smallcore.config import Config
 from smallcore.image_training import (
     _pool_accuracy,
@@ -171,6 +177,9 @@ def main() -> int:
     p.add_argument("--place-sigma", type=float, default=0.5, dest="place_sigma")
     p.add_argument("--l1-code", type=float, default=0.0, dest="l1_code",
                    help="activity cost on the position code")
+    p.add_argument("--analyse", action="store_true",
+                   help="after training, score the position code for periodic "
+                        "structure against a matched noise null")
     p.add_argument("--compile", action="store_true", dest="compile_model")
     p.add_argument("--no-gate", action="store_true", dest="no_gate")
     p.add_argument("--wandb", action="store_true")
@@ -334,6 +343,84 @@ def main() -> int:
     final = {k: float(np.mean([r[k] for r in results])) for k in results[0]}
     final["ambiguity"] = ambiguity
     final["args"] = vars(args)
+
+    if args.analyse:
+        # The headline question for M8, scored here rather than by hand later.
+        # Every count is gated on a noise null of the SAME map size and
+        # smoothing, because without one the peak counter called 7 of 30 units
+        # hexagonal on a checkpoint whose maps were visibly blobs.
+        model.eval()
+        codes, true_positions = [], []
+        for env in held_out:
+            sampler = TorchPatchSampler(env, device)
+            for _ in range(3):
+                p_, v_ = generate_trajectories(env, 16, 300, rng, args.speed)
+                pt_ = torch.as_tensor(p_, dtype=torch.float32, device=device)
+                patches_ = sampler(pt_)
+                velocities_ = torch.as_tensor(
+                    v_[:, :-1], dtype=torch.float32, device=device
+                )
+                state = model.initial_state(16, device)
+                state = model.observe(state, patches_[:, 0])
+                chunk_codes = []
+                for start in range(1, 300, args.window):
+                    stop = min(start + args.window, 300)
+                    state = state.detach()
+                    out, state = model.run_chunk(
+                        state, velocities_[:, start - 1 : stop - 1],
+                        patches_[:, start:stop],
+                    )
+                    chunk_codes.append(out.gated.detach().cpu().numpy())
+                codes.append(np.concatenate(chunk_codes, axis=1).reshape(-1, config.position_dim))
+                true_positions.append(p_[:, 1:].reshape(-1, 2))
+        codes = np.concatenate(codes)
+        true_positions = np.concatenate(true_positions)
+
+        maps, _ = rate_maps_coords(
+            codes, np.arange(len(true_positions)), true_positions,
+            bin_size=0.25, smooth=1.5,
+        )
+        null = noise_peak_ratio(
+            maps[0].shape, 1.5, np.random.default_rng(0), n_samples=200
+        )
+        # TWO gates, because each catches what the other misses.
+        #
+        # The noise null rejects maps with no signal. It does NOT reject a
+        # single blob: a blob's spectrum is peaky at low frequency, so it
+        # sails through with an enormous peak ratio. An untrained model scored
+        # "100% periodic, 2 hexagonal" on exactly that loophole, its maps
+        # having mean field score 0.97 -- one fat lump each.
+        #
+        # So also require the unit to fire in more than one place, which is
+        # what periodic MEANS and what field_score already measures. A grid
+        # cell has many fields and scores low; a blob has one and scores near
+        # 1.0.
+        names = {2: "band", 4: "square", 6: "hex"}
+        counts: dict[str, int] = {}
+        fields = [field_score(m) for m in maps]
+        for m, field in zip(maps, fields):
+            structure = spectral_structure(m, min_peak_ratio=null)
+            key = names.get(structure["n_peaks"], "none")
+            if field >= 0.5:  # single-field: a place cell or a blob, not a grid
+                key = "none"
+            counts[key] = counts.get(key, 0) + 1
+        periodic = sum(v for k, v in counts.items() if k != "none")
+        final["grid"] = {
+            "samples": int(len(true_positions)), "noise_null": null,
+            "counts": counts, "periodic_fraction": periodic / len(maps),
+            "mean_field": float(np.mean(fields)),
+            "hex_fraction": counts.get("hex", 0) / len(maps),
+        }
+        np.save(run_dir / "rate_maps.npy", maps)
+        print(
+            f"\nGRID CELLS, {len(maps)} position units, "
+            f"{len(true_positions):,} samples, noise null {null:.0f}:\n"
+            f"  " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+            + f"\n  periodic {periodic}/{len(maps)} "
+            f"({periodic / len(maps):.0%})   "
+            f"HEX {counts.get('hex', 0)}/{len(maps)}   "
+            f"mean field {final['grid']['mean_field']:.3f}"
+        )
     (run_dir / "metrics.json").write_text(
         json.dumps(final, indent=2), encoding="utf-8"
     )
