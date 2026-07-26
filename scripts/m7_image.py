@@ -62,6 +62,7 @@ from smallcore.image_world import (
     measure_ambiguity,
     split_backdrop,
 )
+from smallcore.place import PlaceTargets
 from smallcore.recurrent import SmallCoreRecurrent
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -159,6 +160,17 @@ def main() -> int:
     # this was wrong: walk length is resampled every iteration, which with
     # static shapes would exhaust dynamo's cache limit of 8 almost at once.
     # With symbolic shapes a second walk length recompiled ZERO times.
+    # --- the grid-cell recipe (M8). See smallcore/place.py. ---------------
+    p.add_argument("--activation", type=str, default="tanh",
+                   choices=("tanh", "relu"),
+                   help="relu gives NONNEGATIVE units, which is what a firing "
+                        "rate is; tanh+LayerNorm makes rate maps signed")
+    p.add_argument("--w-place", type=float, default=0.0, dest="w_place",
+                   help="weight on place-cell-shaped spatial supervision")
+    p.add_argument("--n-place-cells", type=int, default=256, dest="n_place_cells")
+    p.add_argument("--place-sigma", type=float, default=0.5, dest="place_sigma")
+    p.add_argument("--l1-code", type=float, default=0.0, dest="l1_code",
+                   help="activity cost on the position code")
     p.add_argument("--compile", action="store_true", dest="compile_model")
     p.add_argument("--no-gate", action="store_true", dest="no_gate")
     p.add_argument("--wandb", action="store_true")
@@ -176,6 +188,9 @@ def main() -> int:
         observation_mode="patch", patch_size=args.patch, obs_dim=args.obs_dim,
         batch_size=args.batch_size, lr=args.lr, continuous=True, speed=args.speed,
         contrastive_group=args.contrastive_group,
+        position_activation=args.activation, w_place=args.w_place,
+        n_place_cells=args.n_place_cells, place_sigma=args.place_sigma,
+        l1_position_code=args.l1_code,
     )
 
     def build(generator):
@@ -211,6 +226,13 @@ def main() -> int:
     drift = max(s.verify(np.random.default_rng(1234)) for s in samplers)
     if drift > 1e-3:
         raise RuntimeError(f"GPU patch sampler disagrees with observe: {drift:.2e}")
+
+    place_targets = None
+    if args.w_place > 0:
+        place_targets = PlaceTargets(
+            args.n_place_cells, pool[0].bounds, args.place_sigma,
+            np.random.default_rng(args.seed + 77), device,
+        )
 
     model = SmallCoreRecurrent(0, config, seed=args.seed).to(device)
     if args.compile_model:
@@ -266,14 +288,16 @@ def main() -> int:
         velocities = torch.as_tensor(
             all_velocities[:, :-1], dtype=torch.float32, device=device
         )
-        patches = samplers[index](
-            torch.as_tensor(positions, dtype=torch.float32, device=device)
+        position_tensor = torch.as_tensor(
+            positions, dtype=torch.float32, device=device
         )
+        patches = samplers[index](position_tensor)
 
         optimiser.zero_grad()
         stats = run_image_walk(
             model, velocities, patches, config, args.window, use_gate,
             train=True, mask_radius=train_mask,
+            positions=position_tensor, place_targets=place_targets,
         )
         optimiser.step()
 

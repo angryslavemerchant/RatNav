@@ -198,8 +198,10 @@ class ContinuousPositionEncoder(nn.Module):
         module_freqs: tuple[float, ...],
         seed: int = 0,
         exact: bool = False,
+        activation: str = "tanh",
     ) -> None:
         super().__init__()
+        self.activation = activation
         if len(module_dims) != len(module_freqs):
             raise ValueError("module_dims and module_freqs must align")
         if len(set(module_dims)) != 1:
@@ -229,6 +231,10 @@ class ContinuousPositionEncoder(nn.Module):
         self.norm = nn.LayerNorm(self.dim)
 
     def initial_state(self, batch_size: int) -> torch.Tensor:
+        if self.activation == "relu":
+            start = torch.relu(self.initial)
+            start = start * (self.dim ** 0.5) / (start.norm() + 1e-6)
+            return start.expand(batch_size, -1)
         return self.norm(self.initial).expand(batch_size, -1)
 
     def step(self, state: torch.Tensor, velocity: torch.Tensor) -> torch.Tensor:
@@ -243,7 +249,18 @@ class ContinuousPositionEncoder(nn.Module):
             )
         else:
             moved = chunks + torch.einsum("bmd,bmde->bme", chunks, operator)
-        return self.norm(torch.tanh(moved.reshape(batch, self.dim)))
+        flat = moved.reshape(batch, self.dim)
+        if self.activation == "relu":
+            # Nonnegative rates, because that is what a grid cell is and a rate
+            # map of a SIGNED quantity is not comparable to one. LayerNorm is
+            # deliberately NOT used here: it subtracts the mean, which puts the
+            # negatives straight back and defeats the point. Rescaling to a
+            # fixed L2 norm bounds the recurrent state just as well without
+            # centring it.
+            activated = torch.relu(flat)
+            scale = activated.norm(dim=-1, keepdim=True) + 1e-6
+            return activated * (self.dim ** 0.5) / scale
+        return self.norm(torch.tanh(flat))
 
     def forward(self, velocities: torch.Tensor) -> torch.Tensor:
         """Integrate ``velocities`` ``(B, S, 2)`` into codes ``(B, S + 1, dim)``."""

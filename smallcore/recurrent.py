@@ -43,6 +43,7 @@ from smallcore.config import Config
 from smallcore.continuous import ContinuousPositionEncoder
 from smallcore.drift import DriftGate, attend
 from smallcore.patches import PatchEncoder
+from smallcore.place import PlaceHead
 from smallcore.position import PositionEncoder
 from smallcore.readout import Readout
 
@@ -91,7 +92,8 @@ class SmallCoreRecurrent(nn.Module):
         # memory, gate, readout -- needs to know which is in use.
         if config.continuous:
             self.position = ContinuousPositionEncoder(
-                config.module_dims, config.module_freqs, seed=seed
+                config.module_dims, config.module_freqs, seed=seed,
+                activation=config.position_activation,
             )
         else:
             self.position = PositionEncoder(
@@ -128,6 +130,13 @@ class SmallCoreRecurrent(nn.Module):
             self.to_value = nn.Linear(
                 config.n_observations, config.obs_dim, bias=False
             )
+        # Optional spatial supervision (ROADMAP Rung 0c). Linear by design --
+        # a deep head would relieve the recurrent state of the pressure that is
+        # the whole point of the experiment.
+        self.place = (
+            PlaceHead(config.position_dim, config.n_place_cells)
+            if config.w_place > 0 else None
+        )
         self.gate = DriftGate(config.position_dim, config.hidden_dim)
         self.readout = Readout(
             position_dim=config.position_dim,

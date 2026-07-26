@@ -56,6 +56,30 @@ class Config:
     # which is exactly how grid cells become place cells biologically.
     nonlinear_key: bool = False
 
+    # --- the grid-cell recipe (M8) ----------------------------------------- #
+    # Every published demonstration of grid cells emerging in a trained network
+    # supplies three things this model has never had. M5 refuted six mechanisms
+    # and every one of them REMOVED AN OBSTACLE to periodicity; not one of them
+    # REWARDED it. These three do.
+    #
+    # 1. Nonnegative activations. Units here are tanh then LayerNorm, so a rate
+    #    map is of a SIGNED quantity, where a grid cell is a nonnegative firing
+    #    rate. CLAUDE.md flags this as the last untested structural suspect.
+    #    LayerNorm cannot simply be kept: it centres, which reintroduces the
+    #    negatives, so "relu" swaps in a nonnegative rescale instead.
+    position_activation: str = "tanh"  # "tanh" or "relu"
+    # 2. Place-cell-shaped targets. Sorscher et al. find it is the SHAPE of the
+    #    target that yields hexagons -- raw (x, y) is not enough, because the
+    #    minimal solution is a linear code in two dimensions with no pressure to
+    #    repeat. A deliberate, labelled exception to "locations are analysis
+    #    only", justified as a diagnostic. Zero disables it.
+    w_place: float = 0.0
+    n_place_cells: int = 256
+    place_sigma: float = 0.5  # cells
+    # 3. An activity cost. Sparse nonnegative codes are what make a periodic
+    #    solution cheaper than a place-like one.
+    l1_position_code: float = 0.0
+
     # Continuous movement: the position stream takes a velocity vector instead
     # of an action index, and two learned generators replace the per-action
     # matrices (smallcore/continuous.py).

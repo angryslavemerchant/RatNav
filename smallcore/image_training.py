@@ -36,6 +36,7 @@ import torch.nn.functional as F
 
 from smallcore.config import Config
 from smallcore.patches import blocked_mask, info_nce_grouped
+from smallcore.place import place_loss
 from smallcore.recurrent import SmallCoreRecurrent
 
 
@@ -81,6 +82,8 @@ def run_image_walk(
     train: bool,
     mask_radius: int,
     collect: bool = False,
+    positions: torch.Tensor | None = None,
+    place_targets=None,
 ) -> dict:
     """Run a batch of image walks in truncation windows.
 
@@ -101,7 +104,7 @@ def run_image_walk(
     n_windows = max(1, (steps - 1 + window - 1) // window)
     hits = seen = 0
     hits_position = 0
-    loss_sum = gate_sum = 0.0
+    loss_sum = gate_sum = place_sum = 0.0
     kept_pred, kept_target = [], []
 
     for start in range(1, steps, window):
@@ -154,6 +157,21 @@ def run_image_walk(
             + config.w_drift * drift
             + config.l2_position_code * reg_code
         )
+        # An activity cost, which is what makes a sparse periodic code cheaper
+        # than a dense place-like one. Meaningful only for nonnegative units.
+        if config.l1_position_code > 0:
+            loss = loss + config.l1_position_code * output.gated.abs().mean()
+        # Place-cell-shaped spatial supervision, the one ingredient M5 never
+        # supplied. Uses true positions, which the MODEL still never sees --
+        # they enter only through this auxiliary head's target.
+        place_value = 0.0
+        if model.place is not None and positions is not None:
+            window_positions = positions[:, start:stop]
+            place = place_loss(
+                model.place(output.gated), place_targets(window_positions)
+            )
+            loss = loss + config.w_place * place
+            place_value = float(place.detach())
         if train:
             (loss / n_windows).backward()
 
@@ -163,6 +181,7 @@ def run_image_walk(
             seen += pred_hits.numel()
             loss_sum += pred_loss.item()
             gate_sum += output.gate.mean().item()
+            place_sum += place_value
             if collect:
                 kept_pred.append(predicted.detach().reshape(batch, -1, width))
                 kept_target.append(
@@ -174,6 +193,7 @@ def run_image_walk(
         "accuracy_position_window": hits_position / max(seen, 1),
         "loss": loss_sum / n_windows,
         "gate": gate_sum / n_windows,
+        "place": place_sum / n_windows,
     }
     if collect:
         # Windows were laid out (walk-major within window); reassemble into one
