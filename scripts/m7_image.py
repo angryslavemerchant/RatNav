@@ -145,6 +145,19 @@ def main() -> int:
         "--module-freqs", type=str,
         default="0.667,0.5,0.377,0.282,0.213", dest="module_freqs",
     )
+    # torch.compile on run_chunk. NOT for CUDA graphs -- the cache grows by
+    # concatenation so shapes change every step, and the static-shape rewrite
+    # that would fix that measured slower. This is for Inductor's kernel
+    # FUSION, which is the right medicine for a loop whose problem is issuing
+    # ~50 tiny kernels per step. Measured on the RTX PRO 6000: launches per
+    # iteration 40,799 -> 29,860 (0.73x) and 1.2-1.4x wall clock, for 69s of
+    # one-time compilation.
+    #
+    # dynamic=True is load-bearing and is why an earlier judgement against
+    # this was wrong: walk length is resampled every iteration, which with
+    # static shapes would exhaust dynamo's cache limit of 8 almost at once.
+    # With symbolic shapes a second walk length recompiled ZERO times.
+    p.add_argument("--compile", action="store_true", dest="compile_model")
     p.add_argument("--no-gate", action="store_true", dest="no_gate")
     p.add_argument("--wandb", action="store_true")
     p.add_argument("--run-name", type=str, default=None, dest="run_name")
@@ -191,6 +204,8 @@ def main() -> int:
     (RUNS_DIR / "LATEST").write_text(str(run_dir), encoding="utf-8")
 
     model = SmallCoreRecurrent(0, config, seed=args.seed).to(device)
+    if args.compile_model:
+        model.run_chunk = torch.compile(model.run_chunk, dynamic=True)
     n_params = sum(t.numel() for t in model.parameters())
     encoder_params = sum(t.numel() for t in model.to_value.parameters())
     print(
