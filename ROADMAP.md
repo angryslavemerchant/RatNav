@@ -2,6 +2,78 @@
 
 ## START HERE — the next thing to build
 
+### The world was broken, and it had been broken since M7 began (2026-07-26)
+
+**Read this before anything below it.** Everything in the M8 section that
+follows was measured on a world where the observation carried almost no
+information about position, so re-run anything you intend to rely on.
+
+Measured on the patch world every M7 and M8 run used:
+
+| separation | patch correlation |
+|---|---|
+| 0 – 0.1 cells | **+0.99** |
+| 0.1 – 0.25 | +0.42 |
+| 0.25 – 0.5 | −0.12 |
+| 0.5 – 1.0 | −0.04 |
+
+**Observation correlation dies within 0.16 cells. The agent steps 0.5 cells.**
+Consecutive observations are statistically independent, so the reverse read and
+the drift gate — half the architecture — had no signal to work with. "Have I
+seen this before?" was answerable only within a sixth of a cell, which in
+continuous space essentially never recurs.
+
+The bitter part: **Rung 5 was promoted specifically to fix this.** The M6 note
+below says in as many words that "observation similarity carries no spatial
+information at all, which specifically cripples the reverse read." The patch
+world was built to solve that and *did not*, because nobody measured whether it
+had. Building the intended mechanism is not evidence that the mechanism works.
+
+The evidence was also already collected and written up backwards. The drift gate
+sat at 0.05–0.34 across fourteen arms, near its 0.12 initialisation, and
+CLAUDE.md records this as "corrections are small continuous nudges, never
+teleports, which is the right response." It is not. **A gate that never leaves
+its initialisation is evidence about the world, not a property of the
+mechanism.**
+
+**Cause and fix.** `motif_sigma` cannot fix it (measured at 4/8/16/32/64:
+correlation length stays 0.06–0.18 cells) because motifs are drawn
+**independently per tile**, so there is a discontinuity at every cell boundary
+however smooth each side is. The cap is the tile, not the filter. The new
+`motif_cells` widens the tile:
+
+| motif_cells | sigma | corr length | spatial falloff | ambiguity |
+|---|---|---|---|---|
+| 1 (all runs so far) | 4 | 0.16 | −0.001 | 35 |
+| **4** | **16** | **0.62** | **+0.136** | 72 |
+
+At 4/16 the correlation length finally exceeds the step, and repeats still occur
+~14x per motif so ambiguity survives — it *rises*, which is the direction the
+architecture wants.
+
+**Frozen encoders (`--encoder dct|pca|random|gabor`).** Zero trainable
+parameters. The point is pressure, not speed: encoder and predictor share a
+loss, so the loss can fall either by localising better or by reshaping the
+observation space until patches separate more easily, and the second is much
+cheaper. Freezing removes the option. Corrected DCT is near-lossless —
+distance correlation 1.000, 99.1% of variance in 10 of 64 dims. Gabor is
+unusable at 2% variance retained. Frozen encoders also make embedding-caching
+gradient-exact (verified 4.8e-08 float32, 8.5e-17 float64), which is what makes
+a precomputed `(velocity, embedding)` dataset viable.
+
+**Run `scripts/m9_basis_check.py` before training on any frozen basis.** It
+costs ten seconds and it caught three bad configurations of mine, including two
+defaults I had argued for in prose: `drop_dc` discarded 90% of the variance
+(on smooth textures a patch is nearly flat, so its mean brightness *is* the
+observation) and whitening drove distance correlation from 1.000 to 0.237.
+`m7_image.py` now refuses to start below 0.5 correlation, because a frozen basis
+cannot be trained out of a bad start.
+
+**Caveat when reading the gate.** A rising gate is not by itself proof that
+landmarks became useful — the frozen-M1-transfer arm ran the highest gate of any
+run (0.145) precisely because its position stream was bad and it had nothing
+else to lean on. Confirm with retrieval distance, not the gate alone.
+
 ### M7 is DONE and M8 (grid cells) is half-done — read this first (2026-07-26)
 
 **M7, the continuous image walker: PASSED at 51.75%** on images never trained
