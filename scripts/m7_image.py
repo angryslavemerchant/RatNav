@@ -189,6 +189,14 @@ def main() -> int:
                         "parameters, so the loss can only fall by localising "
                         "better (random is the control for which-features-vs-"
                         "merely-frozen)")
+    p.add_argument("--w-drift", type=float, default=None, dest="w_drift",
+                   help="weight on the drift term, which penalises the gated "
+                        "position for departing from the pure path-integrated "
+                        "one. Had no flag until now, so all 16 arms to date ran "
+                        "at the 0.05 default -- and the mean gate never left "
+                        "0.05-0.34 in any of them. A term whose job is to keep "
+                        "the gate small, never once switched off, is the "
+                        "simplest explanation for a gate that never moves")
     p.add_argument("--motif-cells", type=int, default=1, dest="motif_cells",
                    help="cells per motif. 1 is the original tiled world, where "
                         "patch correlation dies within 0.16 cells against a "
@@ -220,6 +228,7 @@ def main() -> int:
         w_pred=args.w_pred, patch_encoder=args.encoder,
         n_place_cells=args.n_place_cells, place_sigma=args.place_sigma,
         l1_position_code=args.l1_code,
+        **({} if args.w_drift is None else {"w_drift": args.w_drift}),
     )
 
     def build(generator):
