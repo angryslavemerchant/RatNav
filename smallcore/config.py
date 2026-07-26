@@ -39,6 +39,25 @@ class Config:
     # patches.LinearPatchEncoder for why the convolution may be the wrong
     # inductive bias here.
     patch_encoder: str = "conv"
+    # Store ENCODED observations in the memory cache instead of raw patches.
+    #
+    # Purely a speed change for the forward pass -- outputs match to 2.5e-15 --
+    # but it is NOT gradient-equivalent, and the difference is the point.
+    # Re-projecting the past block ran to_value on detached PATCHES with
+    # grad-attached WEIGHTS, so the encoder received gradient from re-encoding
+    # the entire history at every window: a 500-step walk did that 25 times
+    # over a growing history, 6,500 patch-steps instead of 500. Caching the
+    # embeddings removes that path, and measured gradients differ by ~1.7e3.
+    #
+    # The module docstring says past entries contribute no gradient, so the old
+    # behaviour violated its own contract -- but the extra signal is gradient
+    # through "how well do my stored memories serve retrieval", which may be
+    # doing real work. Default False keeps existing runs comparable; flip it
+    # only alongside an A/B, never as a silent speedup.
+    #
+    # Worth 45% of a conv iteration (472 ms at batch 256) and 8% of a linear
+    # one, which is the whole reason conv appeared 1.7x slower to train.
+    cache_projected_values: bool = False
     # Softmax temperature for the contrastive objective, on cosine similarity.
     temperature: float = 0.07
     # Walks per contrastive group; 0 means "the whole batch". Set this whenever

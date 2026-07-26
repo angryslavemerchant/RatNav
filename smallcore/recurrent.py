@@ -54,7 +54,10 @@ class RecurrentState:
 
     code: torch.Tensor  # (B, D) current gated position
     past_codes: torch.Tensor  # (B, n, D) memory keys source, detached
-    past_obs: torch.Tensor  # (B, n, V) memory values source, detached
+    # Raw observations, or their embeddings when config.cache_projected_values
+    # is set. Both are detached; they differ in whether the encoder still gets
+    # gradient from re-projecting history (see the config note).
+    past_obs: torch.Tensor
 
     def detach(self) -> "RecurrentState":
         return RecurrentState(
@@ -154,7 +157,11 @@ class SmallCoreRecurrent(nn.Module):
     ) -> RecurrentState:
         code = self.position.initial_state(batch_size)
         empty_codes = code.new_zeros(batch_size, 0, self.config.position_dim)
-        empty_obs = code.new_zeros(batch_size, 0, *self.obs_shape)
+        shape = (
+            (self.config.obs_dim,) if self.config.cache_projected_values
+            else self.obs_shape
+        )
+        empty_obs = code.new_zeros(batch_size, 0, *shape)
         return RecurrentState(code, empty_codes, empty_obs)
 
     def observe(
@@ -168,8 +175,15 @@ class SmallCoreRecurrent(nn.Module):
         return RecurrentState(
             state.code,
             torch.cat([state.past_codes, state.code.unsqueeze(1)], dim=1),
-            torch.cat([state.past_obs, observation.unsqueeze(1)], dim=1),
+            torch.cat([state.past_obs, self._store(observation).unsqueeze(1)],
+                      dim=1),
         )
+
+    def _store(self, observation: torch.Tensor) -> torch.Tensor:
+        """What goes into the cache: the observation, or its embedding."""
+        if self.config.cache_projected_values:
+            return self.to_value(observation).detach()
+        return observation
 
     def run_chunk(
         self,
@@ -201,7 +215,14 @@ class SmallCoreRecurrent(nn.Module):
         # ran twice per window and half of it was thrown away. Free in the
         # symbol world, where W_x is one small matmul; not free in the patch
         # world, where it is a convnet over every patch in the cache.
-        past_values = self.to_value(state.past_obs)
+        # Cached: the block already holds embeddings, so no encoder work and
+        # no gradient into it from history. Uncached: re-project every window,
+        # which costs 45% of a conv iteration and feeds the encoder gradient
+        # from the whole past. See config.cache_projected_values.
+        past_values = (
+            state.past_obs if self.config.cache_projected_values
+            else self.to_value(state.past_obs)
+        )
         past_obs_keys = past_values  # reverse read keys: the same projection
         past_code_values = state.past_codes  # reverse read values
 
@@ -277,6 +298,11 @@ class SmallCoreRecurrent(nn.Module):
         new_state = RecurrentState(
             code,
             torch.cat([state.past_codes, recent_codes], dim=1),
-            torch.cat([state.past_obs, torch.stack(recent_obs, dim=1)], dim=1),
+            torch.cat(
+                [state.past_obs,
+                 recent_obs_proj.detach() if self.config.cache_projected_values
+                 else torch.stack(recent_obs, dim=1)],
+                dim=1,
+            ),
         )
         return output, new_state
