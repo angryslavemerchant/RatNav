@@ -42,7 +42,11 @@ from torch import nn
 from smallcore.config import Config
 from smallcore.continuous import ContinuousPositionEncoder
 from smallcore.drift import DriftGate, attend
-from smallcore.patches import LinearPatchEncoder, PatchEncoder
+from smallcore.patches import (
+    FixedFeatureEncoder,
+    LinearPatchEncoder,
+    PatchEncoder,
+)
 from smallcore.place import PlaceHead
 from smallcore.position import PositionEncoder
 from smallcore.readout import Readout
@@ -125,11 +129,20 @@ class SmallCoreRecurrent(nn.Module):
         # the loop needs to know which world it is in.
         if config.observation_mode == "patch":
             self.obs_shape: tuple[int, ...] = (config.patch_size, config.patch_size)
-            self.to_value: nn.Module = (
-                LinearPatchEncoder(config.patch_size, config.obs_dim)
-                if config.patch_encoder == "linear"
-                else PatchEncoder(config.patch_size, config.obs_dim)
-            )
+            if config.patch_encoder in ("dct", "random", "gabor", "pca"):
+                # Frozen: no trainable parameters, so the contrastive loss can
+                # only be lowered by localising better. Call fit_whitening once
+                # with real patches before training (train.py does).
+                self.to_value: nn.Module = FixedFeatureEncoder(
+                    config.patch_size, config.obs_dim,
+                    basis=config.patch_encoder, seed=seed,
+                )
+            elif config.patch_encoder == "linear":
+                self.to_value = LinearPatchEncoder(
+                    config.patch_size, config.obs_dim
+                )
+            else:
+                self.to_value = PatchEncoder(config.patch_size, config.obs_dim)
         else:
             self.obs_shape = (config.n_observations,)
             self.to_value = nn.Linear(

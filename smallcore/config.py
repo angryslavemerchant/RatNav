@@ -38,7 +38,19 @@ class Config:
     # "linear" -- the flattened patch through one matrix, ViT-style. See
     # patches.LinearPatchEncoder for why the convolution may be the wrong
     # inductive bias here.
+    # "dct" / "random" / "gabor" / "pca" -- FROZEN features, zero trainable
+    # parameters (patches.FixedFeatureEncoder). A learned encoder can lower the
+    # contrastive loss by making patches easier to tell apart instead of by
+    # localising better; freezing it closes that route, which is the same kind
+    # of added constraint that drove M5's periodicity from 57% to 100%.
     patch_encoder: str = "conv"
+    # Feature-scale equalisation for the frozen bases. OFF, and it was on until
+    # measurement said otherwise: whitening drove the correlation between
+    # embedding distance and pixel distance from 1.000 to 0.237, because
+    # equalising variance promotes near-empty high-frequency dimensions into
+    # full-weight noise. See patches.FixedFeatureEncoder.fit. Turn it on only
+    # against a `verify_isometry` reading on the world in hand.
+    fixed_whitening: bool = False
     # Store ENCODED observations in the memory cache instead of raw patches.
     #
     # Purely a speed change for the forward pass -- outputs match to 2.5e-15 --

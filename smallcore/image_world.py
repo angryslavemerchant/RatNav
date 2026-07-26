@@ -198,6 +198,10 @@ def make_image_environment(
     # distinctive, and `measure_ambiguity` is what prices that.
     motif_sigma: float = 4.0,
     blur: float = 0.0,
+    # Cells per motif on a side. 1 reproduces the original tiled world exactly.
+    # See the comment in the body: this, not `motif_sigma`, is what sets how far
+    # two views stay recognisably alike, because tiles are drawn independently.
+    motif_cells: int = 1,
 ) -> ImageEnvironment:
     """Paint a fresh motif assignment onto a lattice and assemble the image.
 
@@ -214,12 +218,50 @@ def make_image_environment(
     # visible instead of silently disappearing.
     if patch > 4 * cell:
         raise ValueError("patch spans too many cells for ambiguity to survive")
+    # A motif spans `motif_cells` cells on a side. At 1 -- the original -- the
+    # backdrop is a mosaic of INDEPENDENTLY DRAWN tiles, and that turned out to
+    # be the binding constraint on the whole world rather than a detail of how
+    # it is painted.
+    #
+    # Measured: patch correlation falls from 0.99 to below 0.5 within 0.16 cells
+    # and reaches zero by 0.25, while the agent steps 0.5 cells. Consecutive
+    # observations are therefore statistically INDEPENDENT, and "have I seen
+    # this before?" is answerable only on returning to within a sixth of a cell,
+    # which essentially never happens in continuous space. That starves the
+    # reverse read of signal, and it explains the drift gate sitting at
+    # 0.12-0.27 across every run -- near its 0.12 initialisation, because
+    # landmarks genuinely were not worth trusting.
+    #
+    # Raising `motif_sigma` does NOT fix it (measured at 4/8/16/32/64: the
+    # correlation length stays at 0.06-0.18 cells and ambiguity falls). It
+    # cannot: smoothing happens inside a tile, and neighbouring tiles are drawn
+    # independently, so there is a discontinuity at every cell boundary however
+    # smooth each side of it is. The correlation length is capped by the tile,
+    # not by the filter.
+    #
+    # Widening the motif raises the cap while keeping the repeats the
+    # architecture needs -- 16 motifs over a 30x30 arena still recur ~14 times
+    # each at motif_cells=2 -- so ambiguity survives and vision starts carrying
+    # local distance.
+    span = motif_cells * cell
     motifs = np.stack(
-        [_smooth_noise((cell, cell), motif_sigma, rng) for _ in range(n_motifs)]
+        [_smooth_noise((span, span), motif_sigma, rng) for _ in range(n_motifs)]
     )
-    cell_motifs = rng.integers(0, n_motifs, size=grid_w * grid_h).astype(int)
-    tiles = motifs[cell_motifs].reshape(grid_h, grid_w, cell, cell)
-    image = tiles.transpose(0, 2, 1, 3).reshape(grid_h * cell, grid_w * cell)
+    slots_h = -(-grid_h // motif_cells)  # ceil: the lattice may overhang
+    slots_w = -(-grid_w // motif_cells)
+    slot_motifs = rng.integers(0, n_motifs, size=slots_h * slots_w).astype(int)
+    tiles = motifs[slot_motifs].reshape(slots_h, slots_w, span, span)
+    image = tiles.transpose(0, 2, 1, 3).reshape(slots_h * span, slots_w * span)
+    image = image[: grid_h * cell, : grid_w * cell]
+    # Kept per-cell so the field means the same thing at any motif width. Note
+    # that with motif_cells > 1 two cells sharing an index no longer look
+    # identical -- they are different parts of the same larger motif -- so this
+    # is provenance, not an appearance key. `measure_ambiguity` compares pixels
+    # and is unaffected.
+    cell_motifs = np.repeat(
+        np.repeat(slot_motifs.reshape(slots_h, slots_w), motif_cells, axis=0),
+        motif_cells, axis=1,
+    )[:grid_h, :grid_w].reshape(-1)
     if blur > 0:
         image = gaussian_filter(image, sigma=blur, mode="reflect")
     image = (image - image.mean()) / (image.std() + 1e-8)

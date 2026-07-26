@@ -68,6 +68,7 @@ from smallcore.image_world import (
     measure_ambiguity,
     split_backdrop,
 )
+from smallcore.patches import FixedFeatureEncoder
 from smallcore.place import PlaceTargets
 from smallcore.recurrent import SmallCoreRecurrent
 
@@ -181,9 +182,20 @@ def main() -> int:
     p.add_argument("--l1-code", type=float, default=0.0, dest="l1_code",
                    help="activity cost on the position code")
     p.add_argument("--encoder", type=str, default="conv",
-                   choices=("conv", "linear"),
+                   choices=("conv", "linear", "dct", "random", "gabor", "pca"),
                    help="linear = flattened patch through one matrix, which "
-                        "preserves pixel-space distance the reverse read needs")
+                        "preserves pixel-space distance the reverse read needs; "
+                        "dct/random/gabor/pca are FROZEN, zero trainable "
+                        "parameters, so the loss can only fall by localising "
+                        "better (random is the control for which-features-vs-"
+                        "merely-frozen)")
+    p.add_argument("--motif-cells", type=int, default=1, dest="motif_cells",
+                   help="cells per motif. 1 is the original tiled world, where "
+                        "patch correlation dies within 0.16 cells against a "
+                        "0.5-cell step -- so consecutive views are independent "
+                        "and the reverse read has nothing to work with. 4 with "
+                        "--motif-sigma 16 puts the correlation length at 0.62 "
+                        "cells, past the step, for the first time")
     p.add_argument("--analyse", action="store_true",
                    help="after training, score the position code for periodic "
                         "structure against a matched noise null")
@@ -213,7 +225,7 @@ def main() -> int:
     def build(generator):
         return make_image_environment(
             args.grid, args.grid, args.cell, args.patch, args.n_motifs, generator,
-            motif_sigma=args.motif_sigma,
+            motif_sigma=args.motif_sigma, motif_cells=args.motif_cells,
         )
 
     held_rng = np.random.default_rng(args.seed + 9999)
@@ -252,6 +264,35 @@ def main() -> int:
         )
 
     model = SmallCoreRecurrent(0, config, seed=args.seed).to(device)
+
+    # A frozen basis needs its feature scales set from the world before the
+    # first step, and the isometry it achieves is worth printing: it is the
+    # property the reverse read depends on, and it is knowable in advance
+    # rather than inferred from a training curve afterwards.
+    isometry = None
+    if isinstance(model.to_value, FixedFeatureEncoder):
+        sample_rng = np.random.default_rng(args.seed + 991)
+        sample_positions, _ = generate_trajectories(
+            pool[0], 64, 32, sample_rng, config.speed
+        )
+        sample = samplers[0](
+            torch.as_tensor(sample_positions, dtype=torch.float32, device=device)
+        ).reshape(-1, args.patch, args.patch)
+        model.to_value.fit(sample, whiten=config.fixed_whitening)
+        isometry = model.to_value.verify_isometry(sample[:512])
+        # A frozen basis cannot be trained out of a bad start, so a poor
+        # isometry here is fatal rather than slow, and it is knowable now. The
+        # first frozen run scored 0.109 and spent ten minutes confirming it.
+        if isometry["distance_corr"] < 0.5:
+            raise RuntimeError(
+                f"frozen '{args.encoder}' features carry almost no distance "
+                f"information on this world (correlation "
+                f"{isometry['distance_corr']:.3f}, "
+                f"{100 * isometry['variance_retained']:.1f}% variance kept). "
+                f"Training cannot fix a frozen basis -- run "
+                f"scripts/m9_basis_check.py and pick a better one."
+            )
+
     if args.compile_model:
         model.run_chunk = torch.compile(model.run_chunk, dynamic=True)
     n_params = sum(t.numel() for t in model.parameters())
@@ -271,6 +312,10 @@ def main() -> int:
         f"parameters: {n_params:,} ({encoder_params:,} in the patch encoder)  "
         f"device {device}  run {run_dir}\n"
         f"gpu patch sampler agrees with numpy to {drift:.1e}\n"
+        + (f"frozen '{args.encoder}' features: pixel-distance correlation "
+           f"{isometry['distance_corr']:.3f}, "
+           f"{100 * isometry['variance_retained']:.1f}% of patch variance "
+           f"retained\n" if isometry else "")
     )
 
     run = None
