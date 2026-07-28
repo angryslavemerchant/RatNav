@@ -556,15 +556,48 @@ it decayed to 0.025 and was worth nothing. Correlated observations are what
 make the reverse read pay — verified genuine by the gate statistic reaching
 exactly 0.000, the check §9.8 demands.
 
-**Widening the motif helps this architecture and hurt the last one.** Gotcha 7
-records `motif_cells=4` costing SmallCore 17.7% → 10.2%; here it is the best
-arm. Priced before training, the retrieval *oracle* is flat across motif width
-(1.66 / 1.53 / 1.49 / 1.57% at corr lengths 0.22 / 0.52 / 0.92 / 1.54 cells)
-while ambiguity rises, and that flatness was read as "motif_cells is not the
-knob". It was the wrong inference: the oracle bounds *pure retrieval*, and the
-model is not a pure retriever, so a ceiling that does not move says nothing
-about a model that was never at it. Price the world, but do not mistake a
-retrieval bound for a model bound.
+**RETRACTED: those four arms were undertrained and scored on the wrong pool,
+and their ordering did not survive.** They ran at batch 64 for 3000 iterations
+against a 9568-candidate pool; M7 ran batch 2048 for 8000 against 2392. Rerun
+matched — batch 2048, 8000 iterations, 8 environments, `--eval-walks 8`:
+
+| arm | motif_cells | 1000 | 3000 | 5000 | 7000 | gate | its oracle |
+|---|---|---|---|---|---|---|---|
+| E | 1 | 2.72% | 3.85% | 8.36% | **13.34%** ↗ | 0.271 | 4.81% |
+| F | 4 | 4.18% | 4.52% | 7.44% | 7.36% — flat | 0.106 | 5.77% |
+
+The wide-motif arm won when undertrained and *loses* by 1.8x at scale, so the
+"motif_cells IS the knob" correction was itself wrong and gotcha 7 stands:
+widening costs SmallCore 17.67% → 10.15% (−43%) and costs this architecture
+13.34% → 7.36% (−45%). Near-identical, in the same direction. **An ablation
+ordering taken before convergence is not evidence of anything** — all four
+wave-1 arms were still on the steep part of their curve, and arm E alone gained
+9.5 points after the point the first wave stopped.
+
+**Compare against a frozen encoder, not against M7's headline.** M7's 51.75%
+and every `m8_*` run used the *learned* conv encoder, which `patches.py` warns
+lets the encoder reshape observation space to satisfy the contrastive loss
+without the recurrent state improving. The frozen-DCT runs are the honest
+comparison and they sit far lower:
+
+| run | encoder | motif_cells | accuracy | gate |
+|---|---|---|---|---|
+| gateB_tiled | frozen dct | 1 | 17.67% | 0.152 |
+| **periodic_nav E** | frozen dct | 1 | **13.34%** (climbing) | 0.271 |
+| gateA_widened | frozen dct | 4 | 10.15% | 0.109 |
+| **periodic_nav F** | frozen dct | 4 | 7.36% | 0.106 |
+
+So a frozen periodic basis reaches ~75% of a learned position stream's
+frozen-encoder score, with 13k parameters against 26.8k and **zero** in the
+position stream, and had not converged when the run ended. It also clears its
+own retrieval oracle by 2.8x, so like M7 it is synthesising a prediction rather
+than copying the nearest remembered patch.
+
+**Three claims in this section were wrong before this one, all the same
+mistake:** a plateau called before convergence, a comparison asserted without
+checking the baseline's pool and batch, and an ablation ordering read off
+undertrained runs. Match the protocol and train to convergence *before*
+comparing, and state the baseline's config when quoting its number.
 
 ## 8. Hyperparameters (starting point)
 
@@ -619,10 +652,11 @@ Target **under 500k parameters** — hours on GPU, plausibly overnight on CPU. S
    the filter. `motif_cells` widens the tile: at 4 cells with sigma 16 the correlation length
    is 0.62 cells, past the step for the first time, at the cost of ambiguity rising from 35 to
    72 cells per patch.
-   **The sign of this effect is architecture-specific.** The same widening is the *best* arm
-   for `periodic_nav` (§7, 2026-07-28), whose path integration is exact by construction and
-   so does not pay the ambiguity penalty a drifting learned integrator does. Re-measure per
-   architecture rather than carrying the result across.
+   **Reproduced on a second architecture.** `periodic_nav` pays the same penalty at matched
+   scale — 13.34% → 7.36%, −45% against SmallCore's −43% (§7, 2026-07-28). An earlier note
+   here claimed the sign was architecture-specific because widening won in that project's
+   first wave; those runs were undertrained and the ordering reversed on convergence. The
+   effect is a property of the world, not of the integrator.
 8. **The small drift gate is CORRECT, and three of us in a row have read it as a symptom.**
    `scripts/m9_reverse_read.py` decodes position from what the gate is actually shown. The
    reverse read carries real position information — about half the chance error — but it is
