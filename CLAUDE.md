@@ -503,6 +503,69 @@ code whose *dot products* behave well, since that is what attention scores are
 basin for the second. The frozen arm also ran the highest gate of any run
 (0.145 vs ~0.10): unable to fix its position stream, it leaned on landmarks.
 
+**Hardcoding the periodic basis works (2026-07-28).** `periodic_nav/` inverts
+M5's question. Rather than pressuring a periodic code to emerge — which §7
+established it will not do, because a dot-product memory prefers unimodal
+similarity — the basis is supplied frozen and the model learns to *use* it.
+The position stream has **no learned parameters**: phases advance by a fixed
+per-action increment and the code is `[sin(φ), cos(φ)]`, so path integration
+is exact by construction and north-then-south returns the identical code.
+Phase updates stay purely action-conditioned; letting the controller see
+observations would let appearance satisfy the position query, which is the
+failure the split-source design exists to prevent.
+
+Symbol world, 11×11, single environment, **13k trainable parameters** against
+M3's ~500k:
+
+| iterations | 50-step | 100-step | 200-step | 300-step |
+|---|---|---|---|---|
+| 500 | 51.3% | 58.5% | 67.1% | 72.7% |
+| 3000 | 57.3% | 66.1% | 75.1% | **80.0%** |
+
+against a 43.4% edge and 18.3% node agent. The gate settles at ~0.027, which
+is *correct*: with exact path integration there is no drift to correct.
+
+**A plateau was called at 500 iterations and it was undertraining.** The claim
+made at the time — that 72.7% "tracks the revisit rate" and is therefore a
+ceiling — is false, and the mistake is instructive because it was made *after*
+the right answer had already been given and then abandoned under pushback. The
+revisit rate bounds pure lookup only and is explicitly **not** a ceiling (§M2):
+the model localises by neighbourhood retrieval and reads a map learned in
+training, which is how 80.0% clears a ~71.6% revisit rate. **Train it out
+before calling a plateau.**
+
+Image world, 10×10 cells, 300-step walks, 9568-candidate pool, image never
+trained on. Four arms, ~11 min and ~$0.02 each on one rented A4000:
+
+| arm | config | accuracy | % of oracle | gate |
+|---|---|---|---|---|
+| D | wide motifs (`motif_cells 4`, `sigma 8`) | **1.20%** | **66%** | 0.099 |
+| B | learned increments | 0.92% | 52% | 0.053 |
+| A | frozen basis | 0.76% | 43% | 0.057 |
+| C | gate ablated | 0.23% | 13% | 0.000 |
+
+with retrieval oracle 1.76–1.82%, nearest neighbour 0.06–0.11%, chance 0.01%.
+
+Three results. **Position-addressed memory beats appearance-addressed by ~12x**
+(0.76% vs 0.06%), which is the architecture's core claim measured directly.
+**Freezing the basis costs ~17%** (0.76 against 0.92 learned), so the periodic
+structure can be supplied rather than learned at modest cost and zero position
+parameters. And **the drift gate is load-bearing here for the first time in
+this project**: removing it costs 70% of accuracy, against a symbol world where
+it decayed to 0.025 and was worth nothing. Correlated observations are what
+make the reverse read pay — verified genuine by the gate statistic reaching
+exactly 0.000, the check §9.8 demands.
+
+**Widening the motif helps this architecture and hurt the last one.** Gotcha 7
+records `motif_cells=4` costing SmallCore 17.7% → 10.2%; here it is the best
+arm. Priced before training, the retrieval *oracle* is flat across motif width
+(1.66 / 1.53 / 1.49 / 1.57% at corr lengths 0.22 / 0.52 / 0.92 / 1.54 cells)
+while ambiguity rises, and that flatness was read as "motif_cells is not the
+knob". It was the wrong inference: the oracle bounds *pure retrieval*, and the
+model is not a pure retriever, so a ceiling that does not move says nothing
+about a model that was never at it. Price the world, but do not mistake a
+retrieval bound for a model bound.
+
 ## 8. Hyperparameters (starting point)
 
 | Parameter | Value |
@@ -556,6 +619,10 @@ Target **under 500k parameters** — hours on GPU, plausibly overnight on CPU. S
    the filter. `motif_cells` widens the tile: at 4 cells with sigma 16 the correlation length
    is 0.62 cells, past the step for the first time, at the cost of ambiguity rising from 35 to
    72 cells per patch.
+   **The sign of this effect is architecture-specific.** The same widening is the *best* arm
+   for `periodic_nav` (§7, 2026-07-28), whose path integration is exact by construction and
+   so does not pay the ambiguity penalty a drifting learned integrator does. Re-measure per
+   architecture rather than carrying the result across.
 8. **The small drift gate is CORRECT, and three of us in a row have read it as a symptom.**
    `scripts/m9_reverse_read.py` decodes position from what the gate is actually shown. The
    reverse read carries real position information — about half the chance error — but it is
