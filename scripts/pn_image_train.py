@@ -14,8 +14,11 @@ Scoring follows M7 exactly so the numbers are comparable to its 51.75%:
   pixels with the answer, so leaving it in scores partial credit as if it
   were knowledge -- and, in training, teaches the model to separate two
   views that are nearly the same image.
-* evaluation scores against the WHOLE WALK pool at a fixed 32 walks, so
-  the number does not move when batch size does.
+* evaluation scores against the WHOLE WALK pool at a fixed ``--eval-walks``
+  (default 8, M7's value -> 2392 candidates). This number sets the
+  difficulty and MUST match between any two runs being compared: at 32
+  walks the same model scores ~4x worse and its retrieval oracle falls
+  from 4.8% to 1.8%, which looks like a worse world and is not.
 * baselines are computed on the same pool: persistence, nearest
   neighbour (appearance-addressed memory -- the one that matters), and
   ``retrieval_oracle``, what retrieval would score with PERFECT
@@ -42,7 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from periodic_nav.config import Config
 from periodic_nav.model import PeriodicNav
 from smallcore.image_world import (
-    generate_image_walks,
+    TorchPatchSampler,
+    generate_trajectories,
     make_image_environment,
     measure_ambiguity,
 )
@@ -57,16 +61,31 @@ from smallcore.patches import FixedFeatureEncoder, blocked_mask, info_nce_groupe
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 
 
-def walks_to_tensors(walks, device):
-    velocities = torch.tensor(
-        np.stack([w.velocities[:-1] for w in walks]),
-        dtype=torch.float32, device=device,
+class _Positions:
+    """Minimal stand-in for ImageWalk: retrieval_oracle reads .positions only."""
+
+    def __init__(self, positions):
+        self.positions = positions
+
+
+def sample_walks(env, sampler, batch, length, rng, speed, device):
+    """Trajectories on the CPU, patches on the GPU.
+
+    ``observe`` builds every patch with numpy on one core and ships them
+    across PCIe; at batch 2048 that is seconds per iteration and it
+    dominates a step loop that is otherwise launch-bound. Splitting it the
+    way M7 does keeps the cheap half on the CPU and the expensive half on
+    the device.
+    """
+    positions, velocities = generate_trajectories(
+        env, batch, length, rng, speed=speed,
     )
-    patches = torch.tensor(
-        np.stack([w.patches for w in walks]),
-        dtype=torch.float32, device=device,
+    pos_t = torch.as_tensor(positions, dtype=torch.float32, device=device)
+    patches = sampler(pos_t)
+    vel_t = torch.as_tensor(
+        velocities[:, :-1], dtype=torch.float32, device=device
     )
-    return velocities, patches
+    return vel_t, patches, positions
 
 
 def embed(encoder, patches):
@@ -153,11 +172,18 @@ def run_image_walk(
 
 
 @torch.no_grad()
-def evaluate(model, encoder, env, cfg, rng, device, length, speed, mask_radius,
-             n_walks=32, use_gate=True):
-    """Whole-walk pool, fixed size, with the baselines on the same pool."""
-    walks = generate_image_walks(env, n_walks, length, rng, speed=speed)
-    velocities, patches = walks_to_tensors(walks, device)
+def evaluate(model, encoder, env, sampler, cfg, rng, device, length, speed,
+             mask_radius, n_walks=8, use_gate=True):
+    """Whole-walk pool, fixed size, with the baselines on the same pool.
+
+    ``n_walks`` sets the pool and therefore the difficulty: pool is
+    ``n_walks * (length - 1)``, so this number must match any run being
+    compared against. M7 used 8, giving a 2392-candidate pool.
+    """
+    velocities, patches, positions = sample_walks(
+        env, sampler, n_walks, length, rng, speed, device,
+    )
+    walks = [_Positions(positions[i]) for i in range(n_walks)]
 
     out = run_image_walk(
         model, encoder, velocities, patches, cfg, mask_radius,
@@ -206,12 +232,22 @@ def main():
     # training
     p.add_argument("--iters", type=int, default=3000)
     p.add_argument("--batch-size", type=int, default=64, dest="batch_size")
-    p.add_argument("--contrastive-group", type=int, default=None,
+    p.add_argument("--contrastive-group", type=int, default=64,
                    dest="contrastive_group",
-                   help="walks per contrastive pool (default: batch size)")
+                   help="walks per contrastive pool. NOT the batch size: the "
+                        "blocked mask is (group*window)^2, so tying this to a "
+                        "large batch allocates quadratically (2048 needs 13GB) "
+                        "AND changes the objective. 64 is M7's value")
     p.add_argument("--walk-length", type=int, default=200, dest="walk_length")
     p.add_argument("--window", type=int, default=20)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--n-envs", type=int, default=1, dest="n_envs",
+                   help="training environments sharing the construction. M7 "
+                        "used 8; appearance must not be memorisable")
+    p.add_argument("--eval-walks", type=int, default=8, dest="eval_walks",
+                   help="sets the evaluation pool (n_walks * (length-1)) and "
+                        "so the difficulty. M7 used 8 -> 2392 candidates. Any "
+                        "run compared against another MUST match this")
     p.add_argument("--eval-every", type=int, default=500, dest="eval_every")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--run-name", type=str, default=None, dest="run_name")
@@ -224,23 +260,32 @@ def main():
     if len(cycles) != args.modules:
         raise ValueError(f"{args.modules} modules but {len(cycles)} cycles")
 
-    env = make_image_environment(
-        args.grid, args.grid, args.cell, args.patch, args.n_motifs, rng,
-        motif_sigma=args.motif_sigma, motif_cells=args.motif_cells,
-    )
+    def build(generator):
+        return make_image_environment(
+            args.grid, args.grid, args.cell, args.patch, args.n_motifs,
+            generator, motif_sigma=args.motif_sigma,
+            motif_cells=args.motif_cells,
+        )
+
+    pool_envs = [build(rng) for _ in range(args.n_envs)]
     # Held out: same construction, never trained on. The M4 lesson --
     # structure transfers, appearance does not -- is only testable if the
     # evaluation world was never seen.
     held_rng = np.random.default_rng(args.seed + 1000)
-    held_out = make_image_environment(
-        args.grid, args.grid, args.cell, args.patch, args.n_motifs, held_rng,
-        motif_sigma=args.motif_sigma, motif_cells=args.motif_cells,
-    )
+    held_out = build(held_rng)
     ambiguity = measure_ambiguity(held_out, held_rng)
     mask_radius = overlap_radius(args.patch, args.cell, args.speed)
 
     encoder = FixedFeatureEncoder(args.patch, args.obs_dim, basis=args.encoder)
     encoder.to(device)
+
+    # Verified against the numpy path rather than assumed equal.
+    samplers = [TorchPatchSampler(e, device) for e in pool_envs]
+    held_sampler = TorchPatchSampler(held_out, device)
+    drift = max(s.verify(np.random.default_rng(1234))
+                for s in samplers + [held_sampler])
+    if drift > 1e-3:
+        raise RuntimeError(f"GPU patch sampler disagrees with observe: {drift:.2e}")
 
     cfg = Config(
         continuous=True, obs_dim=args.obs_dim, patch_size=args.patch,
@@ -252,7 +297,7 @@ def main():
     )
     model = PeriodicNav(cfg).to(device)
     n_params = sum(q.numel() for q in model.parameters() if q.requires_grad)
-    group = args.contrastive_group or args.batch_size
+    group = min(args.contrastive_group, args.batch_size)
 
     run_name = args.run_name or time.strftime("pn_image_%Y%m%d_%H%M%S")
     run_dir = RUNS_DIR / run_name
@@ -268,8 +313,10 @@ def main():
         + ", ".join(f"{c:.1f}" for c in cycles)
         + f" cells ({'LEARNED' if args.learn_increments else 'frozen'})\n"
         f"ambiguity: {ambiguity['cells_per_patch']:.1f} cells per patch\n"
+        f"envs: {args.n_envs} trained on, 1 held out\n"
         f"mask radius: {mask_radius} steps  "
-        f"train pool: {group * args.window} candidates\n"
+        f"train pool: {group * args.window}  "
+        f"eval pool: {args.eval_walks * 299} candidates\n"
         f"parameters: {n_params:,}  device {device}  run {run_dir}\n"
     )
 
@@ -288,10 +335,11 @@ def main():
     began = time.time()
 
     for iteration in range(1, args.iters + 1):
-        walks = generate_image_walks(
-            env, args.batch_size, args.walk_length, rng, speed=args.speed,
+        which = int(rng.integers(0, len(pool_envs)))
+        velocities, patches, _ = sample_walks(
+            pool_envs[which], samplers[which], args.batch_size,
+            args.walk_length, rng, args.speed, device,
         )
-        velocities, patches = walks_to_tensors(walks, device)
 
         optimiser.zero_grad()
         stats = run_image_walk(
@@ -314,8 +362,9 @@ def main():
 
         if iteration % args.eval_every == 0 or iteration == args.iters:
             unseen = evaluate(
-                model, encoder, held_out, cfg, np.random.default_rng(99),
-                device, 300, args.speed, mask_radius, use_gate=use_gate,
+                model, encoder, held_out, held_sampler, cfg,
+                np.random.default_rng(99), device, 300, args.speed,
+                mask_radius, n_walks=args.eval_walks, use_gate=use_gate,
             )
             print(
                 f"  iter {iteration:>5}  unseen 300-step "
@@ -343,8 +392,9 @@ def main():
                run_dir / "latest.pt")
 
     final = evaluate(
-        model, encoder, held_out, cfg, np.random.default_rng(99),
-        device, 300, args.speed, mask_radius, use_gate=use_gate,
+        model, encoder, held_out, held_sampler, cfg,
+        np.random.default_rng(99), device, 300, args.speed, mask_radius,
+        n_walks=args.eval_walks, use_gate=use_gate,
     )
     final["ambiguity"] = {k: float(v) for k, v in ambiguity.items()
                           if isinstance(v, (int, float))}
